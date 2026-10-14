@@ -1,0 +1,63 @@
+{% extends "report_base.html" %}
+{% block title %}Match {{ run.reference }}{% endblock %}
+{% block report_meta %}Match case report &middot; {{ run.reference }}{% endblock %}
+
+{% block content %}
+<h1 class="report-title">{{ run.title }}</h1>
+<p class="report-sub">Trait match against the individual register.</p>
+
+<h2 class="report-h2">Probe</h2>
+<table class="report-table">
+  <tbody>
+    <tr>
+      <th>Height</th><td>{{ run.probe_height_cm or '—' }}{% if run.probe_height_cm %} cm{% endif %}</td>
+      <th>Build</th><td>{{ run.probe_build or '—' }}</td>
+    </tr>
+    <tr>
+      <th>Posture</th><td>{{ run.probe_posture or '—' }}</td>
+      <th>Gait</th><td>{{ run.probe_gait or '—' }}</td>
+    </tr>
+    <tr>
+      <th>Face</th><td>{{ 'template supplied' if run.probe_face else '—' }}</td>
+      <th>Minimum score</th><td>{{ run.min_score|int }}</td>
+    </tr>
+    <tr>
+      <th>Traits used</th><td colspan="3">{{ run.traits_used or '—' }}</td>
+    </tr>
+    {% if run.notes %}
+    <tr><th>Notes</th><td colspan="3">{{ run.notes }}</td></tr>
+    {% endif %}
+  </tbody>
+</table>
+
+<h2 class="report-h2">Ranked candidates ({{ run.result_count }})</h2>
+{% if results %}
+<table class="report-table">
+  <thead>
+    <tr>
+      <th>#</th><th>Candidate</th><th>Reference</th>
+      <th>Score</th><th>Band</th><th>Breakdown</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for result in results %}
+    <tr>
+      <td>{{ loop.index }}</td>
+      <td>{{ result.individual_name }}</td>
+      <td>{{ result.individual_reference or '—' }}</td>
+      <td>{{ result.score }}</td>
+      <td><span class="band-pill band-{{ result.band|upper|replace(' ', '-') }}">{{ result.band }}</span></td>
+      <td>{{ result.summary }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty-note">No candidates scored above the minimum for this run.</p>
+{% endif %}
+
+<p class="report-signoff">
+  Prepared by <strong>{{ run.created_by or 'system' }}</strong> on {{ run.created_at }}.
+  Scores are algorithmic similarity estimates and must be corroborated before action.
+</p>
+{% endblock %}

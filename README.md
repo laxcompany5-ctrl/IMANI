@@ -24,6 +24,11 @@ A security-analyst web app built in small, working increments ("bits").
 > posture 15% — with a confidence band (HIGH → VERY LOW). Face is compared by
 > cosine similarity of optional templates from an external tool; runs are saved.
 > Analysts run matches; any signed-in user can review the history.
+>
+> **Bit 7 — Reporting & exports:** a reports console with key metrics and recent
+> activity, printable case reports for a match run or an individual record
+> (print / save-as-PDF), CSV exports of the register, match results and the
+> activity log, and an admin activity-log viewer with filtering.
 
 ---
 
@@ -204,6 +209,33 @@ audited (`MATCH` / `DELETE`) and can be removed by an analyst.
 
 ---
 
+## 3d. Reporting & exports
+
+Reporting turns the register, the matching engine and the audit trail into
+something you can hand to a supervisor or keep on file.
+
+| Endpoint | Who | What |
+|----------|-----|------|
+| `/reports` | analyst+ | Console: register totals by status, match counts, band distribution, recent runs and a live activity feed |
+| `/individuals/export.csv` | any signed-in user | The register as CSV, honouring the current search filters (face templates are **never** exported) |
+| `/match/<id>/report` | any signed-in user | Printable case report for a run: probe, ranked candidates with per-trait breakdown, prepared-by footer |
+| `/match/<id>/export.csv` | any signed-in user | That run's ranked candidates as CSV |
+| `/individuals/<id>/report` | any signed-in user | Printable profile for one individual: identity, traits, contact, case notes, activity trail |
+| `/activity` | admin | Filterable, paginated view of the whole audit log (by action, entity, actor, details) |
+| `/activity/export.csv` | admin | The filtered audit log as CSV |
+
+Printable reports are standalone pages styled as light "paper" (via
+`static/css/report.css`) so they print cleanly and never waste ink on the dark
+theme. Each has a **Print / Save as PDF** button that simply invokes the
+browser's print dialog.
+
+CSV export columns are fixed and documented in code
+(`individuals.EXPORT_COLUMNS`, `match.EXPORT_TRAITS`,
+`reports.ACTIVITY_EXPORT_COLUMNS`); values are written with Python's `csv`
+module so commas, quotes and newlines are escaped correctly.
+
+---
+
 ## 4. Security measures
 
 | Area | Implementation |
@@ -246,22 +278,25 @@ imani-web/
 │   ├── matching.py         # the scoring engine (weights, bands, cosine)
 │   ├── auth.py             # authenticate, sessions, roles, lockout
 │   ├── oauth.py            # Google OAuth 2.0 / OIDC (stdlib only)
+│   ├── reports.py          # CSV + printable-report helpers
 │   ├── routes/
 │   │   ├── home.py         # /  (public landing page)
 │   │   ├── auth_routes.py  # login, signup, logout, /auth/google[/callback]
 │   │   ├── individuals.py  # /individuals  (search / insert / update / delete)
 │   │   ├── match.py        # /match  (run a probe, history, results)
+│   │   ├── reports.py      # /reports, /activity, /activity/export.csv
 │   │   ├── admin.py        # /admin/approvals, /admin/users
 │   │   └── dashboard.py    # /dashboard
 │   ├── templates/          # Jinja2 pages
-│   └── static/             # CSS + JS (purple theme)
+│   └── static/             # CSS + JS (purple theme, report.css for print)
 └── tests/
     ├── conftest.py
     ├── test_auth.py        # sign-up, approval gate, lockout, RBAC
     ├── test_google.py      # Google OAuth flow (mocked endpoints)
     ├── test_home.py        # public landing page
     ├── test_individuals.py # register CRUD + search + access control
-    └── test_matching.py    # scoring, bands, /match flow
+    ├── test_matching.py    # scoring, bands, /match flow
+    └── test_reports.py     # reports overview, CSV exports, case reports, activity log
 ```
 
 ---
@@ -298,4 +333,5 @@ is in `deploy/DEPLOY.md`.
 - **Bit 4 (done)** — Public landing page at `/`; dashboard moved to `/dashboard`; purple theme.
 - **Bit 5 (done)** — The individual register (search / insert / update / delete).
 - **Bit 6 (done)** — Matching engine: weighted trait scoring, confidence bands, saved runs.
-- **Bit 7+** — Reporting, exports, deployment hardening.
+- **Bit 7 (done)** — Reporting & exports: reports console, printable case/profile reports, CSV exports, activity log.
+- **Bit 8+** — Deployment hardening and next increments.

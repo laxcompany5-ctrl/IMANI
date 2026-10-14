@@ -562,3 +562,29 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+/* ---------- Reporting ---------- */
+.report-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.1rem;
+  margin-top: 1.1rem;
+}
+.report-columns > .card { margin: 0; }
+.metric-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: .5rem;
+}
+.metric-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: .45rem;
+}
+.metric-list li:last-child { border-bottom: 0; padding-bottom: 0; }
+.metric-heading { margin-top: 1.2rem; }

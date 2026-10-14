@@ -43,12 +43,21 @@ def create_app(config_object: type | None = None) -> Flask:
     init_csrf(app)
 
     # --- Blueprints ---------------------------------------------------
-    from .routes import admin, auth_routes, dashboard, home, individuals, match
+    from .routes import (
+        admin,
+        auth_routes,
+        dashboard,
+        home,
+        individuals,
+        match,
+        reports,
+    )
 
     app.register_blueprint(home.bp)
     app.register_blueprint(auth_routes.bp)
     app.register_blueprint(individuals.bp)
     app.register_blueprint(match.bp)
+    app.register_blueprint(reports.bp)
     app.register_blueprint(admin.bp)
     app.register_blueprint(dashboard.bp)
 

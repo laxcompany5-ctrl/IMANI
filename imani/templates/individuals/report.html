@@ -1,0 +1,65 @@
+{% extends "report_base.html" %}
+{% block title %}{{ person.full_name }}{% endblock %}
+{% block report_meta %}Individual profile &middot; {{ person.reference }}{% endblock %}
+
+{% block content %}
+<h1 class="report-title">
+  {{ person.full_name }}
+  {% if person.alias %}<span class="report-alias">&ldquo;{{ person.alias }}&rdquo;</span>{% endif %}
+</h1>
+<p class="report-sub">{{ person.reference }} &middot; {{ person.status }}</p>
+
+<h2 class="report-h2">Identity</h2>
+<dl class="kv">
+  <dt>Date of birth</dt><dd>{{ person.date_of_birth or '—' }}</dd>
+  <dt>Gender</dt><dd>{{ person.gender }}</dd>
+  <dt>National ID</dt><dd>{{ person.national_id or '—' }}</dd>
+  <dt>Nationality</dt><dd>{{ person.nationality or '—' }}</dd>
+</dl>
+
+<h2 class="report-h2">Physical traits</h2>
+<dl class="kv">
+  <dt>Height</dt><dd>{{ person.height_cm or '—' }}{% if person.height_cm %} cm{% endif %}</dd>
+  <dt>Build</dt><dd>{{ person.build }}</dd>
+  <dt>Posture</dt><dd>{{ person.posture }}</dd>
+  <dt>Gait</dt><dd>{{ person.gait }}</dd>
+  <dt>Face template</dt><dd>{{ 'on file' if person.face_template else '—' }}</dd>
+  <dt>Distinguishing marks</dt><dd>{{ person.distinguishing_marks or '—' }}</dd>
+</dl>
+
+<h2 class="report-h2">Contact &amp; residence</h2>
+<dl class="kv">
+  <dt>Phone</dt><dd>{{ person.phone or '—' }}</dd>
+  <dt>Email</dt><dd>{{ person.email or '—' }}</dd>
+  <dt>Address</dt><dd>{{ person.address or '—' }}</dd>
+</dl>
+
+{% if person.notes %}
+<h2 class="report-h2">Case notes</h2>
+<p>{{ person.notes }}</p>
+{% endif %}
+
+<h2 class="report-h2">Activity</h2>
+{% if activity %}
+<table class="report-table">
+  <thead><tr><th>When</th><th>Action</th><th>Actor</th><th>Details</th></tr></thead>
+  <tbody>
+    {% for event in activity %}
+    <tr>
+      <td>{{ event.created_at }}</td>
+      <td>{{ event.action }}</td>
+      <td>{{ event.actor or 'system' }}</td>
+      <td>{{ event.details or '—' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty-note">No recorded activity.</p>
+{% endif %}
+
+<p class="report-signoff">
+  Record created {{ person.created_at }}{% if person.created_by %} by {{ person.created_by }}{% endif %}
+  {%- if person.updated_at %}; last updated {{ person.updated_at }}{% if person.updated_by %} by {{ person.updated_by }}{% endif %}{% endif %}.
+</p>
+{% endblock %}

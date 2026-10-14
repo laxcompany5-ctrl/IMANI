@@ -11,6 +11,7 @@ from flask import Blueprint, abort, flash, redirect, render_template, request, u
 
 from .. import auth
 from ..models import AuditRepository, IndividualRepository
+from ..reports import csv_response, timestamp
 from ..validation import (
     BUILD_OPTIONS,
     GAIT_OPTIONS,
@@ -24,6 +25,14 @@ bp = Blueprint("individuals", __name__, url_prefix="/individuals")
 
 ENTITY = "individuals"
 PAGE_SIZE = 20
+
+# Columns included in the CSV export (face templates are intentionally omitted).
+EXPORT_COLUMNS = (
+    "reference", "full_name", "alias", "date_of_birth", "gender", "national_id",
+    "phone", "email", "nationality", "address", "height_cm", "build", "posture",
+    "gait", "distinguishing_marks", "status", "created_at", "created_by",
+    "updated_at", "updated_by",
+)
 
 
 def _enum(value: str | None, options: tuple[str, ...], default: str) -> str:
@@ -203,3 +212,37 @@ def delete(individual_id: int):
     )
     flash(f"Deleted {person['full_name']}.", "success")
     return redirect(url_for("individuals.index"))
+
+
+# --- Reporting & export ---------------------------------------------------
+
+@bp.route("/export.csv")
+@auth.login_required
+def export_csv():
+    """Export the register as CSV, honouring the current search filters."""
+    q = request.args.get("q", "").strip()
+    status = _enum(request.args.get("status"), INDIVIDUAL_STATUSES, "") or None
+    build = _enum(request.args.get("build"), BUILD_OPTIONS, "") or None
+
+    rows, _ = IndividualRepository.search(
+        q=q or None, status=status, build=build, limit=100000, offset=0,
+    )
+    data = [
+        ["" if row[column] is None else row[column] for column in EXPORT_COLUMNS]
+        for row in rows
+    ]
+    return csv_response("individuals.csv", EXPORT_COLUMNS, data)
+
+
+@bp.route("/<int:individual_id>/report")
+@auth.login_required
+def report(individual_id: int):
+    person = _get_or_404(individual_id)
+    activity = AuditRepository.for_entity(ENTITY, individual_id, limit=20)
+    return render_template(
+        "individuals/report.html",
+        person=person,
+        activity=activity,
+        generated=timestamp(),
+        back_url=url_for("individuals.detail", individual_id=individual_id),
+    )

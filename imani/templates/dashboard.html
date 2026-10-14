@@ -44,6 +44,7 @@
     {% if current_user.role in ('analyst', 'admin') %}
     <a class="btn" href="{{ url_for('individuals.create') }}">Register individual</a>
     <a class="btn" href="{{ url_for('match.run') }}">Run a match</a>
+    <a class="btn" href="{{ url_for('reports.overview') }}">Reports &amp; exports</a>
     {% endif %}
   </div>
 </div>

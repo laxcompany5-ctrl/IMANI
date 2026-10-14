@@ -163,6 +163,17 @@ def score(probe: dict, person) -> dict | None:
     }
 
 
+def breakdown_text(breakdown: dict, order=("height_cm", "gait", "face", "build",
+                                            "posture")) -> str:
+    """A compact one-line summary of a breakdown, e.g. "Height 88%, Gait 50%"."""
+    parts = [
+        f"{TRAIT_LABELS.get(trait, trait)} {round(breakdown[trait]['similarity'] * 100)}%"
+        for trait in order
+        if trait in breakdown
+    ]
+    return ", ".join(parts) if parts else "—"
+
+
 def rank(probe: dict, people, min_score: float = 0.0,
          limit: int | None = None) -> list[dict]:
     """Score, filter and rank a collection of individuals against a probe."""

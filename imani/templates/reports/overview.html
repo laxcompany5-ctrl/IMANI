@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Reports{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Reports</h1>
+    <p class="muted">Register, matching and activity at a glance.</p>
+  </div>
+  <div class="head-actions">
+    <a class="btn btn-primary" href="{{ url_for('individuals.export_csv') }}">Export register (CSV)</a>
+    {% if current_user.role == 'admin' %}
+    <a class="btn btn-ghost" href="{{ url_for('reports.activity') }}">Activity log</a>
+    {% endif %}
+  </div>
+</div>
+
+<div class="stat-grid">
+  <div class="card stat">
+    <a class="stat-value" href="{{ url_for('individuals.index') }}">{{ individuals_total }}</a>
+    <span class="stat-label">Individuals on file</span>
+  </div>
+  <div class="card stat">
+    <a class="stat-value" href="{{ url_for('match.history') }}">{{ matches }}</a>
+    <span class="stat-label">Match runs</span>
+  </div>
+  <div class="card stat">
+    <span class="stat-value">{{ scored }}</span>
+    <span class="stat-label">Candidates scored</span>
+  </div>
+  <div class="card stat">
+    <span class="stat-value">{{ users.get('active', 0) }}</span>
+    <span class="stat-label">Active accounts</span>
+  </div>
+</div>
+
+<div class="report-columns">
+  <section class="card">
+    <h2>Register by status</h2>
+    <ul class="metric-list">
+      {% for key in ('active', 'archived') %}
+      <li>
+        <span class="pill pill-{{ 'active' if key == 'active' else 'disabled' }}">{{ key }}</span>
+        <strong>{{ individuals.get(key, 0) }}</strong>
+      </li>
+      {% endfor %}
+    </ul>
+
+    <h3 class="metric-heading">Match bands</h3>
+    <ul class="metric-list">
+      {% for key in ('HIGH', 'MODERATE', 'LOW', 'VERY LOW') %}
+      <li>
+        <span class="band band-{{ key|lower|replace(' ', '-') }}">{{ key }}</span>
+        <strong>{{ bands.get(key, 0) }}</strong>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+
+  <section class="card">
+    <h2>Recent match runs</h2>
+    {% if runs %}
+    <ul class="timeline">
+      {% for run in runs %}
+      <li>
+        <a href="{{ url_for('match.results', run_id=run.id) }}">{{ run.title or 'Untitled probe' }}</a>
+        <span class="muted small">{{ run.result_count }} candidate{{ '' if run.result_count == 1 else 's' }}</span>
+        <small><code>{{ run.reference }}</code> &middot; {{ run.created_at }}</small>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="muted small">No match runs yet.</p>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <h2>Recent activity</h2>
+    {% if activity %}
+    <ul class="timeline">
+      {% for event in activity %}
+      <li>
+        <span class="pill pill-{{ 'active' if event.action == 'INSERT' else ('pending' if event.action == 'UPDATE' else 'rejected') }}">{{ event.action }}</span>
+        <span>{{ event.details or '—' }}</span>
+        <small>{{ event.actor or 'system' }} &middot; {{ event.created_at }}</small>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="muted small">No activity recorded yet.</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

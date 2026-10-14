@@ -278,6 +278,13 @@ class IndividualRepository:
         ).fetchall()
 
     @staticmethod
+    def count_by_status() -> dict[str, int]:
+        rows = get_db().execute(
+            "SELECT status, COUNT(*) AS n FROM individuals GROUP BY status"
+        ).fetchall()
+        return {row["status"]: row["n"] for row in rows}
+
+    @staticmethod
     def count() -> int:
         return get_db().execute(
             "SELECT COUNT(*) AS n FROM individuals"
@@ -396,6 +403,20 @@ class MatchRepository:
         ).fetchone()["n"]
 
     @staticmethod
+    def scored_count() -> int:
+        """Total candidate rows across all runs."""
+        return get_db().execute(
+            "SELECT COUNT(*) AS n FROM match_results"
+        ).fetchone()["n"]
+
+    @staticmethod
+    def band_distribution() -> dict[str, int]:
+        rows = get_db().execute(
+            "SELECT band, COUNT(*) AS n FROM match_results GROUP BY band"
+        ).fetchall()
+        return {row["band"]: row["n"] for row in rows}
+
+    @staticmethod
     def delete_run(run_id: int) -> None:
         db = get_db()
         db.execute("DELETE FROM match_runs WHERE id = ?", (run_id,))
@@ -451,3 +472,46 @@ class AuditRepository:
             "ORDER BY id DESC LIMIT ?",
             (entity, entity_id, limit),
         ).fetchall()
+
+    @staticmethod
+    def search(action: str | None = None, entity: str | None = None,
+               actor: str | None = None, q: str | None = None,
+               limit: int = 50, offset: int = 0):
+        """Filtered, paginated audit trail. Returns ``(rows, total)``."""
+        clauses: list[str] = []
+        params: list = []
+        if action:
+            clauses.append("action = ?")
+            params.append(action)
+        if entity:
+            clauses.append("entity = ?")
+            params.append(entity)
+        if actor:
+            clauses.append("lower(actor) LIKE lower(?)")
+            params.append(f"%{actor}%")
+        if q:
+            clauses.append("details LIKE ?")
+            params.append(f"%{q}%")
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+
+        db = get_db()
+        total = db.execute(
+            f"SELECT COUNT(*) AS n FROM audit_log {where}", params
+        ).fetchone()["n"]
+        rows = db.execute(
+            f"SELECT * FROM audit_log {where} ORDER BY id DESC LIMIT ? OFFSET ?",
+            (*params, limit, offset),
+        ).fetchall()
+        return rows, total
+
+    @staticmethod
+    def distinct_actions() -> list[str]:
+        return [row["action"] for row in get_db().execute(
+            "SELECT DISTINCT action FROM audit_log ORDER BY action"
+        ).fetchall()]
+
+    @staticmethod
+    def distinct_entities() -> list[str]:
+        return [row["entity"] for row in get_db().execute(
+            "SELECT DISTINCT entity FROM audit_log ORDER BY entity"
+        ).fetchall()]

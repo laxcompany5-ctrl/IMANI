@@ -9,6 +9,7 @@ from flask import Blueprint, abort, flash, redirect, render_template, request, u
 
 from .. import auth, matching
 from ..models import AuditRepository, IndividualRepository, MatchRepository
+from ..reports import csv_response, timestamp
 from ..validation import BUILD_OPTIONS, GAIT_OPTIONS, POSTURE_OPTIONS
 
 bp = Blueprint("match", __name__, url_prefix="/match")
@@ -17,6 +18,9 @@ ENTITY = "match_runs"
 MAX_RESULTS = 25
 
 PROBE_KEYS = ("height_cm", "build", "posture", "gait", "face")
+
+# Trait columns included in the CSV export, in display order.
+EXPORT_TRAITS = ("height_cm", "gait", "face", "build", "posture")
 
 
 def _enum(value, options, default):
@@ -174,3 +178,51 @@ def delete(run_id: int):
     )
     flash("Match run deleted.", "success")
     return redirect(url_for("match.history"))
+
+
+# --- Reporting & export ---------------------------------------------------
+
+def _trait_percent(breakdown: dict, trait: str):
+    if trait not in breakdown:
+        return ""
+    return round(breakdown[trait]["similarity"] * 100)
+
+
+@bp.route("/<int:run_id>/export.csv")
+@auth.login_required
+def export_csv(run_id: int):
+    run_row = MatchRepository.get_run(run_id)
+    if run_row is None:
+        abort(404)
+
+    header = ["rank", "reference", "name", "score", "band"] + [
+        matching.TRAIT_LABELS[trait] for trait in EXPORT_TRAITS
+    ]
+    rows = MatchRepository.results_for(run_id)
+    data = [
+        [
+            rank, r["individual_reference"], r["individual_name"],
+            r["score"], r["band"],
+            *[_trait_percent(r["breakdown"], trait) for trait in EXPORT_TRAITS],
+        ]
+        for rank, r in enumerate(rows, start=1)
+    ]
+    return csv_response(f"match-{run_row['reference']}.csv", header, data)
+
+
+@bp.route("/<int:run_id>/report")
+@auth.login_required
+def report(run_id: int):
+    run_row = MatchRepository.get_run(run_id)
+    if run_row is None:
+        abort(404)
+    results = MatchRepository.results_for(run_id)
+    for result in results:
+        result["summary"] = matching.breakdown_text(result["breakdown"])
+    return render_template(
+        "match/report.html",
+        run=run_row,
+        results=results,
+        generated=timestamp(),
+        back_url=url_for("match.results", run_id=run_id),
+    )
