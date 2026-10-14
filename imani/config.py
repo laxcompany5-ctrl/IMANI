@@ -27,6 +27,17 @@ class Config:
     MAX_FAILED_ATTEMPTS = 5
     LOCKOUT_MINUTES = 5
 
+    # --- Google sign-in (OAuth 2.0 / OpenID Connect) ------------------
+    # Create an OAuth 2.0 "Web application" client in the Google Cloud
+    # Console and set these (e.g. in a .env file or your environment).
+    GOOGLE_CLIENT_ID = os.environ.get("IMANI_GOOGLE_CLIENT_ID", "")
+    GOOGLE_CLIENT_SECRET = os.environ.get("IMANI_GOOGLE_CLIENT_SECRET", "")
+    # Optional: pin the exact redirect URI registered with Google. When
+    # blank it is derived from the incoming request.
+    GOOGLE_REDIRECT_URI = os.environ.get("IMANI_GOOGLE_REDIRECT_URI", "")
+    # Optional: comma-separated allow-list of email domains.
+    GOOGLE_ALLOWED_DOMAINS = os.environ.get("IMANI_GOOGLE_ALLOWED_DOMAINS", "")
+
     # --- Database -----------------------------------------------------
     DATABASE = os.environ.get(
         "IMANI_DATABASE", str(BASE_DIR / "instance" / "imani.sqlite3")

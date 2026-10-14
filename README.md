@@ -2,9 +2,14 @@
 
 A security-analyst web app built in small, working increments ("bits").
 
-> **Bit 1 (this commit) — Authentication:** sign-in and a self-service
-> access-request (sign-up) form. New accounts stay **pending** until an
-> administrator approves them, so no unvetted user can reach the console.
+> **Bit 1 — Authentication:** sign-in and a self-service access-request
+> (sign-up) form. New accounts stay **pending** until an administrator
+> approves them, so no unvetted user can reach the console.
+>
+> **Bit 2 — Google sign-in:** "Continue with Google" on both the sign-in and
+> access-request pages, using OAuth 2.0 / OpenID Connect. New Google users
+> become **pending** accounts just like email sign-ups; existing approved
+> accounts are linked and signed in directly.
 
 ---
 
@@ -13,6 +18,7 @@ A security-analyst web app built in small, working increments ("bits").
 - **Python 3 + Flask 3** (server-rendered Jinja2 templates)
 - **SQLite** via the standard-library `sqlite3` (no ORM)
 - **Werkzeug** scrypt password hashing
+- **Google OAuth 2.0** via the standard library `urllib` (no OAuth package)
 - Vanilla CSS + a little progressive-enhancement JS — no build step
 
 The stack was chosen to match what is already installed on this machine, so the
@@ -75,6 +81,43 @@ to the **audit log**.
 
 ---
 
+## 3a. Google sign-in setup
+
+Google sign-in is active once credentials are present; without them the button
+still appears but explains that setup is required.
+
+1. In the [Google Cloud Console](https://console.cloud.google.com/) create a
+   project, then **APIs & Services → OAuth consent screen**.
+2. Create credentials → **OAuth client ID** → application type **Web
+   application**.
+3. Add an **Authorised redirect URI** that matches exactly, e.g.
+   `http://127.0.0.1:5055/auth/google/callback`
+   (and/or `http://127.0.0.1:5000/auth/google/callback`).
+4. Export the credentials (or put them in a `.env` file):
+
+```bash
+export IMANI_GOOGLE_CLIENT_ID="xxxxxxxx.apps.googleusercontent.com"
+export IMANI_GOOGLE_CLIENT_SECRET="GOCSPX-xxxxxxxx"
+# optional: pin the redirect URI and restrict email domains
+export IMANI_GOOGLE_REDIRECT_URI="http://127.0.0.1:5055/auth/google/callback"
+export IMANI_GOOGLE_ALLOWED_DOMAINS="imani.local,example.org"
+```
+
+### How the Google flow maps to IMANI
+
+| Situation | Result |
+|-----------|--------|
+| Google identity already linked and account **active** | Signed in immediately |
+| Google email matches an existing approved account | Identity **linked**, signed in |
+| Google email matches a **pending/disabled** account | Not signed in; appropriate message |
+| Brand-new verified Google email | A **pending** access request is created for admin review |
+| Email not verified by Google, or domain not allowed | Rejected |
+
+Only **Google-verified** emails are trusted, and the flow uses **PKCE** with a
+single-use `state` value to defeat CSRF and code-interception attacks.
+
+---
+
 ## 4. Security measures
 
 | Area | Implementation |
@@ -87,6 +130,7 @@ to the **audit log**.
 | Authorisation | Role hierarchy `viewer < analyst < admin`; admin-only approval & user management |
 | Audit | Append-only `audit_log` of every authentication event |
 | Redirects | `next` parameter validated to block open-redirects |
+| Google OAuth | Authorization Code + **PKCE (S256)**, single-use `state` CSRF check, verified-email requirement, optional domain allow-list |
 
 ---
 
@@ -106,15 +150,17 @@ imani-web/
 │   ├── validation.py       # username/email/password rules
 │   ├── models.py           # UserRepository, AuditRepository
 │   ├── auth.py             # authenticate, sessions, roles, lockout
+│   ├── oauth.py            # Google OAuth 2.0 / OIDC (stdlib only)
 │   ├── routes/
-│   │   ├── auth_routes.py  # /auth/login, /auth/signup, /auth/logout
+│   │   ├── auth_routes.py  # login, signup, logout, /auth/google[/callback]
 │   │   ├── admin.py        # /admin/approvals, /admin/users
 │   │   └── dashboard.py    # /
 │   ├── templates/          # Jinja2 pages
 │   └── static/             # CSS + JS
 └── tests/
     ├── conftest.py
-    └── test_auth.py        # 11 tests: sign-up, approval gate, lockout, RBAC
+    ├── test_auth.py        # sign-up, approval gate, lockout, RBAC
+    └── test_google.py      # Google OAuth flow (mocked endpoints)
 ```
 
 ---
@@ -122,6 +168,7 @@ imani-web/
 ## 6. Roadmap
 
 - **Bit 1 (done)** — Authentication: sign in, access requests, approval, RBAC, audit.
-- **Bit 2** — Analyst dashboard shell & navigation.
-- **Bit 3** — The individual register (search / insert / update / delete).
-- **Bit 4+** — Matching engine, reporting, deployment hardening.
+- **Bit 2 (done)** — Google sign-in (OAuth 2.0 / OIDC) on login and sign-up.
+- **Bit 3** — Analyst dashboard shell & navigation.
+- **Bit 4** — The individual register (search / insert / update / delete).
+- **Bit 5+** — Matching engine, reporting, deployment hardening.

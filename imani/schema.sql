@@ -10,6 +10,13 @@ CREATE TABLE IF NOT EXISTS users (
     full_name      TEXT    NOT NULL,
     password_hash  TEXT    NOT NULL,
 
+    -- Google sign-in -------------------------------------------------
+    -- Google's stable subject ("sub") claim. NULL for password accounts.
+    google_id      TEXT    UNIQUE,
+    avatar_url     TEXT,
+    auth_provider  TEXT    NOT NULL DEFAULT 'password'
+                   CHECK (auth_provider IN ('password', 'google')),
+
     -- Access control -------------------------------------------------
     role           TEXT    NOT NULL DEFAULT 'viewer'
                    CHECK (role IN ('admin', 'analyst', 'viewer')),
@@ -31,6 +38,7 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE INDEX IF NOT EXISTS idx_users_status ON users(status);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google ON users(google_id);
 
 CREATE TABLE IF NOT EXISTS audit_log (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,

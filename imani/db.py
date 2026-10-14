@@ -72,8 +72,33 @@ def seed_command() -> None:
         click.echo("Users already exist — no seed account created.")
 
 
+@click.command("migrate")
+def migrate_command() -> None:
+    """Add columns introduced by later 'bits' (safe to re-run)."""
+    db = get_db()
+    existing = {row["name"] for row in db.execute("PRAGMA table_info(users)")}
+    additions = (
+        ("google_id", "ALTER TABLE users ADD COLUMN google_id TEXT"),
+        ("avatar_url", "ALTER TABLE users ADD COLUMN avatar_url TEXT"),
+        ("auth_provider",
+         "ALTER TABLE users ADD COLUMN auth_provider TEXT NOT NULL DEFAULT 'password'"),
+    )
+    added = []
+    for name, ddl in additions:
+        if name not in existing:
+            db.execute(ddl)
+            added.append(name)
+    db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google ON users(google_id)")
+    db.commit()
+    if added:
+        click.echo("Added column(s): " + ", ".join(added) + ".")
+    else:
+        click.echo("Database already up to date.")
+
+
 def init_app(app) -> None:
     app.teardown_appcontext(close_db)
     app.cli.add_command(init_db_command)
     app.cli.add_command(reset_db_command)
     app.cli.add_command(seed_command)
+    app.cli.add_command(migrate_command)

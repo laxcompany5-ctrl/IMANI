@@ -27,6 +27,26 @@ def client(app):
     return app.test_client()
 
 
+@pytest.fixture
+def google_app(tmp_path):
+    class GoogleConfig(TestConfig):
+        DATABASE = str(tmp_path / "google.sqlite3")
+        GOOGLE_CLIENT_ID = "test-client-id.apps.googleusercontent.com"
+        GOOGLE_CLIENT_SECRET = "test-client-secret"
+        GOOGLE_REDIRECT_URI = "http://localhost/auth/google/callback"
+
+    application = create_app(GoogleConfig)
+    with application.app_context():
+        init_db()
+        ensure_seed_admin("admin", "Imani@2026", email="admin@imani.local")
+    yield application
+
+
+@pytest.fixture
+def google_client(google_app):
+    return google_app.test_client()
+
+
 def signup(client, username="jane", email="jane@imani.local",
            password="Passw0rd1", role="analyst"):
     return client.post(

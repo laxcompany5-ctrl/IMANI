@@ -24,7 +24,10 @@
       {% for user in users %}
       <tr>
         <td>{{ user.full_name }}</td>
-        <td><code>{{ user.username }}</code></td>
+        <td>
+          <code>{{ user.username }}</code>
+          {% if user.auth_provider == 'google' %}<span class="pill pill-google" title="Signs in with Google">Google</span>{% endif %}
+        </td>
         <td>{{ user.email }}</td>
         <td>{{ user.role }}</td>
         <td><span class="pill pill-{{ user.status }}">{{ user.status }}</span></td>

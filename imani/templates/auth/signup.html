@@ -61,6 +61,8 @@
   <button class="btn btn-primary btn-block" type="submit">Submit request</button>
 </form>
 
+{% include "_google_button.html" %}
+
 <p class="auth-foot">
   Already have an account?
   <a href="{{ url_for('auth.login') }}">Sign in</a>

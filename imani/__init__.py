@@ -30,6 +30,8 @@ def create_app(config_object: type | None = None) -> Flask:
     # --- Template globals --------------------------------------------
     @app.context_processor
     def inject_globals() -> dict:
+        from . import oauth
+
         user = auth.current_user()
         pending = 0
         if user is not None and user["role"] == "admin":
@@ -41,6 +43,7 @@ def create_app(config_object: type | None = None) -> Flask:
             "app_tagline": app.config["APP_TAGLINE"],
             "current_user": user,
             "pending_count": pending,
+            "google_enabled": oauth.is_configured(app.config),
         }
 
     # --- Error pages --------------------------------------------------

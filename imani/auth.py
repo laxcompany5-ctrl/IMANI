@@ -28,7 +28,13 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(password_hash: str, password: str) -> bool:
-    return check_password_hash(password_hash, password)
+    if not password_hash:
+        return False
+    try:
+        return check_password_hash(password_hash, password)
+    except (ValueError, TypeError):
+        # Malformed hash (e.g. the sentinel used by Google-only accounts).
+        return False
 
 
 def authenticate(identifier: str, password: str):

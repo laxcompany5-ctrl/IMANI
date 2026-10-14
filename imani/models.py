@@ -1,6 +1,7 @@
 """Data-access repositories (thin wrappers over SQLite)."""
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta, timezone
 
 from .db import get_db
@@ -43,6 +44,27 @@ class UserRepository:
         ).fetchone()
 
     @staticmethod
+    def get_by_google_id(google_id: str):
+        if not google_id:
+            return None
+        return get_db().execute(
+            "SELECT * FROM users WHERE google_id = ?", (google_id,)
+        ).fetchone()
+
+    @staticmethod
+    def suggest_username(base: str) -> str:
+        """Build a unique username from a preferred base string."""
+        cleaned = re.sub(r"[^A-Za-z0-9._-]", "", base or "")[:28]
+        if len(cleaned) < 3:
+            cleaned = f"user{cleaned}"
+        candidate = cleaned
+        suffix = 0
+        while UserRepository.get_by_username(candidate):
+            suffix += 1
+            candidate = f"{cleaned}{suffix}"[:32]
+        return candidate
+
+    @staticmethod
     def all():
         return get_db().execute(
             "SELECT * FROM users ORDER BY status, username"
@@ -68,15 +90,30 @@ class UserRepository:
     @staticmethod
     def create(username: str, email: str, full_name: str, password_hash: str,
                role: str = "viewer", status: str = "pending",
-               requested_role: str | None = None) -> int:
+               requested_role: str | None = None, google_id: str | None = None,
+               avatar_url: str | None = None,
+               auth_provider: str = "password") -> int:
         db = get_db()
         cur = db.execute(
             "INSERT INTO users (username, email, full_name, password_hash, role, "
-            "status, requested_role) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (username, email, full_name, password_hash, role, status, requested_role),
+            "status, requested_role, google_id, avatar_url, auth_provider) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (username, email, full_name, password_hash, role, status,
+             requested_role, google_id, avatar_url, auth_provider),
         )
         db.commit()
         return cur.lastrowid
+
+    @staticmethod
+    def link_google(user_id: int, google_id: str, avatar_url: str | None = None) -> None:
+        """Attach a Google identity to an existing account."""
+        db = get_db()
+        db.execute(
+            "UPDATE users SET google_id = ?, avatar_url = COALESCE(?, avatar_url) "
+            "WHERE id = ?",
+            (google_id, avatar_url, user_id),
+        )
+        db.commit()
 
     @staticmethod
     def decide(user_id: int, status: str, role: str | None, decided_by: int) -> None:
