@@ -6,16 +6,38 @@ import os
 from flask import Flask, render_template
 
 from . import auth, db
-from .config import Config
+from .config import DEFAULT_SECRET_KEY, ProductionConfig, Config
 from .security import init_csrf
 
 
 def create_app(config_object: type | None = None) -> Flask:
     """Application factory."""
+    if config_object is None:
+        config_object = (
+            ProductionConfig
+            if os.environ.get("IMANI_ENV") == "production"
+            else Config
+        )
+
     app = Flask(__name__, instance_relative_config=True)
-    app.config.from_object(config_object or Config)
+    app.config.from_object(config_object)
+
+    # Refuse to run in production with the placeholder secret key.
+    if app.config.get("ENVIRONMENT") == "production":
+        if app.config["SECRET_KEY"] == DEFAULT_SECRET_KEY:
+            raise RuntimeError(
+                "Refusing to start in production with the default SECRET_KEY. "
+                "Set IMANI_SECRET_KEY to a long, random value."
+            )
 
     os.makedirs(app.instance_path, exist_ok=True)
+
+    # Behind nginx: trust X-Forwarded-Proto/Host/For so HTTPS and redirect URIs
+    # are built correctly.
+    if app.config.get("BEHIND_PROXY"):
+        from werkzeug.middleware.proxy_fix import ProxyFix
+
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
     db.init_app(app)
     init_csrf(app)

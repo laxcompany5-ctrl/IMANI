@@ -19,6 +19,7 @@ A security-analyst web app built in small, working increments ("bits").
 - **SQLite** via the standard-library `sqlite3` (no ORM)
 - **Werkzeug** scrypt password hashing
 - **Google OAuth 2.0** via the standard library `urllib` (no OAuth package)
+- **gunicorn + nginx** for production deployment (see `deploy/DEPLOY.md`)
 - Vanilla CSS + a little progressive-enhancement JS — no build step
 
 The stack was chosen to match what is already installed on this machine, so the
@@ -138,9 +139,17 @@ single-use `state` value to defeat CSRF and code-interception attacks.
 
 ```
 imani-web/
-├── app.py                  # entry point (env-configurable host/port)
+├── app.py                  # dev entry point (env-configurable host/port)
+├── wsgi.py                 # production WSGI entry point (gunicorn)
+├── gunicorn.conf.py        # gunicorn settings
+├── Procfile                # for PaaS (Render/Railway/Fly.io)
+├── .env.example            # documented environment variables
 ├── requirements.txt
 ├── pytest.ini
+├── deploy/
+│   ├── DEPLOY.md           # step-by-step VPS deployment guide
+│   ├── imani.service       # systemd unit
+│   └── nginx-imani.conf    # nginx reverse-proxy config
 ├── imani/
 │   ├── __init__.py         # application factory
 │   ├── config.py           # configuration
@@ -165,10 +174,35 @@ imani-web/
 
 ---
 
-## 6. Roadmap
+## 6. Deployment (putting it on a real domain)
+
+IMANI ships with everything needed to run on a server behind **nginx** with
+**HTTPS**: `wsgi.py`, `gunicorn.conf.py`, a systemd unit, an nginx config and a
+full guide in **[`deploy/DEPLOY.md`](deploy/DEPLOY.md)**.
+
+```bash
+# On the server, after setting up .env and the venv:
+gunicorn --config gunicorn.conf.py wsgi:app
+```
+
+Setting `IMANI_ENV=production` enables:
+
+- `SESSION_COOKIE_SECURE` (cookies sent over HTTPS only)
+- `PREFERRED_URL_SCHEME=https` and `ProxyFix` (correct URLs behind nginx)
+- a startup guard that **refuses to boot with the default secret key**
+
+Quick summary of the domain flow: register the domain (e.g. at HostAfrica) →
+point its `A` record at your server → deploy as above → add
+`https://<domain>/auth/google/callback` to the Google OAuth client. Full detail
+is in `deploy/DEPLOY.md`.
+
+---
+
+## 7. Roadmap
 
 - **Bit 1 (done)** — Authentication: sign in, access requests, approval, RBAC, audit.
 - **Bit 2 (done)** — Google sign-in (OAuth 2.0 / OIDC) on login and sign-up.
-- **Bit 3** — Analyst dashboard shell & navigation.
-- **Bit 4** — The individual register (search / insert / update / delete).
-- **Bit 5+** — Matching engine, reporting, deployment hardening.
+- **Bit 3 (done)** — Production deployment: gunicorn, nginx, systemd, HTTPS, `.env`.
+- **Bit 4** — Analyst dashboard shell & navigation.
+- **Bit 5** — The individual register (search / insert / update / delete).
+- **Bit 6+** — Matching engine, reporting, deployment hardening.
