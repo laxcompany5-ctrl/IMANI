@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Users{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Users</h1>
+    <p class="muted">All accounts and their current status.</p>
+  </div>
+  <div class="head-actions">
+    <a class="btn" href="{{ url_for('admin.approvals') }}">Pending approvals</a>
+  </div>
+</div>
+
+<div class="card table-wrap">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Name</th><th>Username</th><th>Email</th>
+        <th>Role</th><th>Status</th><th>Created</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for user in users %}
+      <tr>
+        <td>{{ user.full_name }}</td>
+        <td><code>{{ user.username }}</code></td>
+        <td>{{ user.email }}</td>
+        <td>{{ user.role }}</td>
+        <td><span class="pill pill-{{ user.status }}">{{ user.status }}</span></td>
+        <td class="muted">{{ user.created_at }}</td>
+        <td>
+          {% if user.id != current_user.id and user.status in ('active', 'disabled') %}
+          <form method="post" action="{{ url_for('admin.toggle', user_id=user.id) }}">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-small {{ 'btn-danger' if user.status == 'active' }}" type="submit">
+              {{ 'Disable' if user.status == 'active' else 'Enable' }}
+            </button>
+          </form>
+          {% elif user.id == current_user.id %}
+          <span class="muted small">You</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

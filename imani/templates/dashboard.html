@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Welcome, {{ current_user.full_name.split(' ')[0] }}</h1>
+    <p class="muted">You are signed in as <strong>{{ current_user.role }}</strong>.</p>
+  </div>
+  {% if current_user.role == 'admin' and pending %}
+  <div class="head-actions">
+    <a class="btn btn-primary" href="{{ url_for('admin.approvals') }}">
+      {{ pending }} pending approval{{ '' if pending == 1 else 's' }}
+    </a>
+  </div>
+  {% endif %}
+</div>
+
+<div class="stat-grid">
+  <div class="card stat">
+    <span class="stat-value">{{ active }}</span>
+    <span class="stat-label">Active accounts</span>
+  </div>
+  <div class="card stat">
+    <span class="stat-value">{{ counts.get('pending', 0) }}</span>
+    <span class="stat-label">Pending approvals</span>
+  </div>
+  <div class="card stat">
+    <span class="stat-value">{{ counts.get('disabled', 0) }}</span>
+    <span class="stat-label">Disabled</span>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Bit 1 — Authentication</h2>
+  <p class="muted">The sign-in and access-request flows are in place. Accounts remain
+    <span class="pill pill-pending">pending</span> until an administrator approves them.</p>
+  <ul class="checklist">
+    <li>Secure sign-in with hashed passwords and brute-force lockout</li>
+    <li>Self-service access requests with administrator approval</li>
+    <li>Role-based access control and a full audit trail</li>
+  </ul>
+</div>
+{% endblock %}

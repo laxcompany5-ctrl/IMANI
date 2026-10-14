@@ -1,0 +1,68 @@
+{% extends "auth_base.html" %}
+{% block title %}Request access{% endblock %}
+{% block aside_title %}Request analyst access{% endblock %}
+{% block aside_lead %}Submit your details to request an IMANI account. A security administrator reviews every request before the account is activated — new sign-ups cannot sign in until approved.{% endblock %}
+
+{% block content %}
+<h1 class="auth-title">Request access</h1>
+<p class="auth-sub">Create your account — an administrator will review it.</p>
+
+<form method="post" action="{{ url_for('auth.signup') }}" class="auth-form" novalidate>
+  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+
+  <div class="field">
+    <label for="full_name">Full name</label>
+    <input id="full_name" name="full_name" type="text" autocomplete="name"
+           placeholder="Jane Wanjiru" required
+           value="{{ form.full_name or '' }}">
+  </div>
+
+  <div class="form-row">
+    <div class="field">
+      <label for="username">Username</label>
+      <input id="username" name="username" type="text" autocomplete="username"
+             placeholder="jwanjiru" required value="{{ form.username or '' }}">
+    </div>
+    <div class="field">
+      <label for="email">Work email</label>
+      <input id="email" name="email" type="email" autocomplete="email"
+             placeholder="jwanjiru@imani.local" required value="{{ form.email or '' }}">
+    </div>
+  </div>
+
+  <div class="field">
+    <label for="requested_role">Requested access level</label>
+    <select id="requested_role" name="requested_role">
+      <option value="analyst" {{ 'selected' if form.requested_role == 'analyst' }}>Analyst — analyse and match records</option>
+      <option value="viewer"  {{ 'selected' if form.requested_role == 'viewer' }}>Viewer — read-only access</option>
+    </select>
+    <span class="hint">Administrators may adjust this when approving.</span>
+  </div>
+
+  <div class="form-row">
+    <div class="field">
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="new-password"
+             placeholder="At least 8 characters" required data-strength-source>
+      <div class="strength" data-strength-for="password" aria-hidden="true">
+        <span class="strength-bar"></span><span class="strength-bar"></span>
+        <span class="strength-bar"></span><span class="strength-bar"></span>
+      </div>
+      <span class="hint" data-strength-label>Use 8+ characters with letters and numbers.</span>
+    </div>
+    <div class="field">
+      <label for="confirm_password">Confirm password</label>
+      <input id="confirm_password" name="confirm_password" type="password"
+             autocomplete="new-password" placeholder="Repeat password" required data-confirm-for="password">
+      <span class="hint" data-confirm-label></span>
+    </div>
+  </div>
+
+  <button class="btn btn-primary btn-block" type="submit">Submit request</button>
+</form>
+
+<p class="auth-foot">
+  Already have an account?
+  <a href="{{ url_for('auth.login') }}">Sign in</a>
+</p>
+{% endblock %}

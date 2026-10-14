@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Sign in{% endblock %} · {{ app_name }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="auth-body">
+  <div class="auth-shell">
+
+    <aside class="auth-aside">
+      <a class="brand brand-lg" href="{{ url_for('auth.login') }}">
+        {% include "_logo.html" %}
+        <span class="brand-text">
+          <strong>{{ app_name }}</strong>
+          <small>{{ app_tagline }}</small>
+        </span>
+      </a>
+
+      <div class="auth-aside-body">
+        <h2>{% block aside_title %}Secure access for security analysts{% endblock %}</h2>
+        <p class="auth-aside-lead">{% block aside_lead %}IMANI is a security intelligence console. Access is restricted to vetted personnel — every session is authenticated, role-scoped and audited.{% endblock %}</p>
+
+        <ul class="auth-features">
+          <li><span class="tick">✓</span> Role-based access (admin · analyst · viewer)</li>
+          <li><span class="tick">✓</span> Administrator-approved accounts</li>
+          <li><span class="tick">✓</span> Every action written to the audit trail</li>
+        </ul>
+      </div>
+
+      <p class="auth-aside-foot">Authorised use only. Activity may be monitored.</p>
+    </aside>
+
+    <main class="auth-main">
+      <div class="auth-box">
+        {% include "_flashes.html" %}
+        {% block content %}{% endblock %}
+      </div>
+    </main>
+
+  </div>
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

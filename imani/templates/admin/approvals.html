@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Pending approvals{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Access requests</h1>
+    <p class="muted">Review sign-up requests and grant an access level.</p>
+  </div>
+  <div class="head-actions">
+    <a class="btn" href="{{ url_for('admin.users') }}">All users</a>
+  </div>
+</div>
+
+{% if pending %}
+<div class="card table-wrap">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Name</th><th>Username</th><th>Email</th>
+        <th>Requested</th><th>Submitted</th><th>Decision</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for user in pending %}
+      <tr>
+        <td>{{ user.full_name }}</td>
+        <td><code>{{ user.username }}</code></td>
+        <td>{{ user.email }}</td>
+        <td><span class="pill pill-requested">{{ user.requested_role or 'analyst' }}</span></td>
+        <td class="muted">{{ user.created_at }}</td>
+        <td>
+          <div class="row-actions">
+            <form method="post" action="{{ url_for('admin.approve', user_id=user.id) }}" class="inline-form">
+              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+              <select name="role" aria-label="Role">
+                <option value="analyst" {{ 'selected' if user.requested_role == 'analyst' }}>analyst</option>
+                <option value="viewer"  {{ 'selected' if user.requested_role == 'viewer' }}>viewer</option>
+                <option value="admin">admin</option>
+              </select>
+              <button class="btn btn-primary btn-small" type="submit">Approve</button>
+            </form>
+            <form method="post" action="{{ url_for('admin.reject', user_id=user.id) }}">
+              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+              <button class="btn btn-danger btn-small" type="submit">Reject</button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="card empty">
+  <p class="empty-mark">✓</p>
+  <h2>No pending requests</h2>
+  <p class="muted">New access requests will appear here for review.</p>
+</div>
+{% endif %}
+{% endblock %}
