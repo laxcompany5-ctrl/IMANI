@@ -154,22 +154,24 @@ imani-web/
 │   ├── __init__.py         # application factory
 │   ├── config.py           # configuration
 │   ├── schema.sql          # users + audit_log
-│   ├── db.py               # SQLite helpers + CLI (init-db, reset-db, seed)
+│   ├── db.py               # SQLite helpers + CLI (init-db, reset-db, seed, migrate)
 │   ├── security.py         # CSRF protection
 │   ├── validation.py       # username/email/password rules
 │   ├── models.py           # UserRepository, AuditRepository
 │   ├── auth.py             # authenticate, sessions, roles, lockout
 │   ├── oauth.py            # Google OAuth 2.0 / OIDC (stdlib only)
 │   ├── routes/
+│   │   ├── home.py         # /  (public landing page)
 │   │   ├── auth_routes.py  # login, signup, logout, /auth/google[/callback]
 │   │   ├── admin.py        # /admin/approvals, /admin/users
-│   │   └── dashboard.py    # /
+│   │   └── dashboard.py    # /dashboard
 │   ├── templates/          # Jinja2 pages
-│   └── static/             # CSS + JS
+│   └── static/             # CSS + JS (purple theme)
 └── tests/
     ├── conftest.py
     ├── test_auth.py        # sign-up, approval gate, lockout, RBAC
-    └── test_google.py      # Google OAuth flow (mocked endpoints)
+    ├── test_google.py      # Google OAuth flow (mocked endpoints)
+    └── test_home.py        # public landing page
 ```
 
 ---
@@ -203,6 +205,6 @@ is in `deploy/DEPLOY.md`.
 - **Bit 1 (done)** — Authentication: sign in, access requests, approval, RBAC, audit.
 - **Bit 2 (done)** — Google sign-in (OAuth 2.0 / OIDC) on login and sign-up.
 - **Bit 3 (done)** — Production deployment: gunicorn, nginx, systemd, HTTPS, `.env`.
-- **Bit 4** — Analyst dashboard shell & navigation.
+- **Bit 4 (done)** — Public landing page at `/`; dashboard moved to `/dashboard`; purple theme.
 - **Bit 5** — The individual register (search / insert / update / delete).
 - **Bit 6+** — Matching engine, reporting, deployment hardening.

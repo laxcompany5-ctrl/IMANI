@@ -208,3 +208,24 @@ class AuditRepository:
         return get_db().execute(
             "SELECT * FROM audit_log ORDER BY id DESC LIMIT ?", (limit,)
         ).fetchall()
+
+    @staticmethod
+    def count_since(action: str, since_modifier: str) -> int:
+        """Count events of ``action`` newer than ``datetime('now', ?)``.
+
+        Example: ``count_since("LOGIN", "-1 day")``.
+        """
+        return get_db().execute(
+            "SELECT COUNT(*) AS n FROM audit_log "
+            "WHERE action = ? AND created_at >= datetime('now', ?)",
+            (action, since_modifier),
+        ).fetchone()["n"]
+
+    @staticmethod
+    def recent_actions(limit: int = 8):
+        """A compact, human-readable activity feed."""
+        return get_db().execute(
+            "SELECT action, entity, details, actor, created_at "
+            "FROM audit_log ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()

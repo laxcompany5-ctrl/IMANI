@@ -119,7 +119,7 @@ def test_callback_signs_in_linked_active_user(google_app, google_client, monkeyp
         "/auth/google/callback?code=abc&state=the-state", follow_redirects=False
     )
     assert response.status_code == 302
-    assert response.headers["Location"].endswith("/")
+    assert response.headers["Location"].endswith("/dashboard")
 
     with google_app.app_context():
         user = UserRepository.get(user_id)

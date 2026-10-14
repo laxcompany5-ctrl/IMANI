@@ -95,8 +95,14 @@ def test_account_locks_after_repeated_failures(app, client):
 
 # --- Access control -------------------------------------------------------
 
+def test_home_is_public(client):
+    response = client.get("/")
+    assert response.status_code == 200
+    assert b"Request access" in response.data
+
+
 def test_dashboard_requires_login(client):
-    response = client.get("/", follow_redirects=False)
+    response = client.get("/dashboard", follow_redirects=False)
     assert response.status_code == 302
     assert "/auth/login" in response.headers["Location"]
 
@@ -110,7 +116,7 @@ def test_non_admin_cannot_reach_approvals(app, client):
     login(client, "jane", "Passw0rd1")
     response = client.get("/admin/approvals", follow_redirects=False)
     assert response.status_code == 302
-    assert response.headers["Location"].endswith("/")
+    assert response.headers["Location"].endswith("/dashboard")
 
 
 def test_admin_can_approve_through_the_ui(app, client):

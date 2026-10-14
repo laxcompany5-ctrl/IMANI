@@ -1,0 +1,138 @@
+{% extends "public_base.html" %}
+{% block title %}{{ app_name }} — Algorithmic Identification for Security Analysts{% endblock %}
+
+{% block content %}
+
+<!-- Hero -->
+<section class="hero">
+  <div class="hero-copy">
+    <span class="eyebrow">Algorithmic identification · Security intelligence</span>
+    <h1>Identify. Verify. <span class="grad">Act with confidence.</span></h1>
+    <p class="hero-lead">
+      IMANI fuses <strong>gait, height, posture and face</strong> with conventional
+      identity data — giving security analysts one console to search, match and act,
+      with every action recorded.
+    </p>
+    <div class="hero-cta">
+      {% if current_user %}
+        <a class="btn btn-primary btn-lg" href="{{ url_for('dashboard.index') }}">Open the console</a>
+      {% else %}
+        <a class="btn btn-primary btn-lg" href="{{ url_for('auth.signup') }}">Request access</a>
+        <a class="btn btn-lg" href="{{ url_for('auth.login') }}">Sign in</a>
+      {% endif %}
+    </div>
+    <p class="hero-note">Accounts are reviewed and approved by an administrator.</p>
+  </div>
+
+  <div class="hero-visual" aria-hidden="true">
+    <div class="scan-card">
+      <div class="scan-head"><span class="live-dot"></span> Live match · checkpoint 04</div>
+      <div class="scan-ring"><span class="sweep"></span><span class="scan-score">92<small>%</small></span></div>
+      <ul class="trait-bars">
+        <li><span>Gait</span><i style="--w:88%"></i><b>88</b></li>
+        <li><span>Height</span><i style="--w:94%"></i><b>94</b></li>
+        <li><span>Posture</span><i style="--w:81%"></i><b>81</b></li>
+        <li><span>Face</span><i style="--w:90%"></i><b>90</b></li>
+        <li><span>Build</span><i style="--w:76%"></i><b>76</b></li>
+      </ul>
+      <div class="scan-band">HIGH confidence</div>
+    </div>
+  </div>
+</section>
+
+<!-- Metrics strip -->
+<section class="metrics">
+  <div class="metric"><span class="metric-value">5</span><span class="metric-label">Trait signals fused</span></div>
+  <div class="metric"><span class="metric-value">3</span><span class="metric-label">Access roles</span></div>
+  <div class="metric"><span class="metric-value">100%</span><span class="metric-label">Actions audited</span></div>
+  <div class="metric"><span class="metric-value">OAuth</span><span class="metric-label">Password or Google sign-in</span></div>
+</section>
+
+<!-- Features -->
+<section id="features" class="section">
+  <header class="section-head">
+    <span class="eyebrow">Capabilities</span>
+    <h2>Everything an analyst needs, in one console</h2>
+    <p class="muted">Built around the four essentials — Search, Update, Insert and Delete — with an algorithmic identification layer on top.</p>
+  </header>
+
+  <div class="feature-grid">
+    <article class="feature">
+      <span class="feature-icon">▤</span>
+      <h3>Individual register</h3>
+      <p>Register, search and update individuals with structured identity and physical-trait fields.</p>
+    </article>
+    <article class="feature">
+      <span class="feature-icon">◎</span>
+      <h3>Trait matching</h3>
+      <p>Score candidates on gait (25%), height (25%), face (20%), build (15%) and posture (15%).</p>
+    </article>
+    <article class="feature">
+      <span class="feature-icon">≡</span>
+      <h3>Confidence bands</h3>
+      <p>Every match returns a weighted score mapped to a HIGH → VERY LOW confidence band.</p>
+    </article>
+    <article class="feature">
+      <span class="feature-icon">◑</span>
+      <h3>Role-based access</h3>
+      <p>Viewer, analyst and admin roles enforce least privilege across every screen.</p>
+    </article>
+    <article class="feature">
+      <span class="feature-icon">✓</span>
+      <h3>Approval workflow</h3>
+      <p>New accounts stay pending until an administrator reviews and approves them.</p>
+    </article>
+    <article class="feature">
+      <span class="feature-icon">⧉</span>
+      <h3>Full audit trail</h3>
+      <p>Every insert, update, delete and sign-in is recorded — who, what and when.</p>
+    </article>
+  </div>
+</section>
+
+<!-- How it works -->
+<section id="how" class="section">
+  <header class="section-head">
+    <span class="eyebrow">How it works</span>
+    <h2>From request to first match in minutes</h2>
+  </header>
+  <ol class="steps">
+    <li><span class="step-no">1</span><h3>Request access</h3><p>Submit your details — or register with a single click using Google.</p></li>
+    <li><span class="step-no">2</span><h3>Get approved</h3><p>An administrator reviews the request and assigns your role.</p></li>
+    <li><span class="step-no">3</span><h3>Sign in securely</h3><p>Password or Google sign-in, protected by lockout and CSRF defences.</p></li>
+    <li><span class="step-no">4</span><h3>Search &amp; match</h3><p>Search the register and rank candidates by weighted trait similarity.</p></li>
+  </ol>
+</section>
+
+<!-- Security -->
+<section id="security" class="section security-band">
+  <div class="security-copy">
+    <span class="eyebrow">Security first</span>
+    <h2>Designed for sensitive work</h2>
+    <p class="muted">IMANI treats identity data as sensitive by default, at every layer.</p>
+  </div>
+  <ul class="security-list">
+    <li>Werkzeug <strong>scrypt</strong> password hashing</li>
+    <li><strong>CSRF</strong> protection on every state-changing request</li>
+    <li><strong>Brute-force lockout</strong> after repeated failures</li>
+    <li>HTTPS-only, <strong>HttpOnly &amp; SameSite</strong> sessions</li>
+    <li>Candidates ranked with an explicit <strong>confidence band</strong></li>
+    <li>Google sign-in via <strong>OAuth 2.0 + PKCE</strong></li>
+  </ul>
+</section>
+
+<!-- CTA -->
+<section class="cta-band">
+  <h2>Ready to work the case?</h2>
+  <p>Request access and an administrator will review your account.</p>
+  <div class="hero-cta">
+    {% if current_user %}
+      <a class="btn btn-primary btn-lg" href="{{ url_for('dashboard.index') }}">Open the console</a>
+    {% else %}
+      <a class="btn btn-primary btn-lg" href="{{ url_for('auth.signup') }}">Request access</a>
+      <a class="btn btn-lg" href="{{ url_for('auth.login') }}">Sign in</a>
+    {% endif %}
+  </div>
+</section>
+
+{% endblock %}

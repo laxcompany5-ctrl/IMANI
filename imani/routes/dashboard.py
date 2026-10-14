@@ -8,7 +8,7 @@ from .. import auth
 bp = Blueprint("dashboard", __name__)
 
 
-@bp.route("/")
+@bp.route("/dashboard")
 @auth.login_required
 def index():
     from ..models import UserRepository
