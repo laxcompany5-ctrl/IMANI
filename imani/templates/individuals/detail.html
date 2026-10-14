@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}{{ person.full_name }}{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>
+      {{ person.full_name }}
+      {% if person.alias %}<span class="muted alias-inline">&middot; &ldquo;{{ person.alias }}&rdquo;</span>{% endif %}
+    </h1>
+    <p class="muted">
+      <code>{{ person.reference }}</code>
+      <span class="pill pill-{{ 'active' if person.status == 'active' else 'disabled' }}">{{ person.status }}</span>
+    </p>
+  </div>
+  <div class="head-actions">
+    <a class="btn btn-ghost" href="{{ url_for('individuals.index') }}">Back</a>
+    {% if current_user.role in ('analyst', 'admin') %}
+    <a class="btn" href="{{ url_for('individuals.edit', individual_id=person.id) }}">Edit</a>
+    <button class="btn btn-danger" type="button" data-confirm-delete="#delete-form">Delete</button>
+    {% endif %}
+  </div>
+</div>
+
+<div class="detail-grid">
+  <section class="card">
+    <h2>Identity</h2>
+    <dl class="detail-list">
+      <div><dt>Date of birth</dt><dd>{{ person.date_of_birth or '—' }}</dd></div>
+      <div><dt>Gender</dt><dd>{{ person.gender }}</dd></div>
+      <div><dt>National ID</dt><dd>{{ person.national_id or '—' }}</dd></div>
+      <div><dt>Nationality</dt><dd>{{ person.nationality or '—' }}</dd></div>
+    </dl>
+  </section>
+
+  <section class="card">
+    <h2>Physical traits</h2>
+    <div class="trait-chips">
+      <span class="chip">Height <strong>{{ person.height_cm or '—' }}{% if person.height_cm %} cm{% endif %}</strong></span>
+      <span class="chip">Build <strong>{{ person.build }}</strong></span>
+      <span class="chip">Posture <strong>{{ person.posture }}</strong></span>
+      <span class="chip">Gait <strong>{{ person.gait }}</strong></span>
+    </div>
+    {% if person.distinguishing_marks %}
+    <p class="muted small marks-note">Marks: {{ person.distinguishing_marks }}</p>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <h2>Contact &amp; residence</h2>
+    <dl class="detail-list">
+      <div><dt>Phone</dt><dd>{{ person.phone or '—' }}</dd></div>
+      <div><dt>Email</dt><dd>{{ person.email or '—' }}</dd></div>
+      <div><dt>Address</dt><dd>{{ person.address or '—' }}</dd></div>
+    </dl>
+  </section>
+
+  <section class="card">
+    <h2>Case notes</h2>
+    <p class="muted">{{ person.notes or 'No notes recorded.' }}</p>
+  </section>
+</div>
+
+<section class="card">
+  <h2>Activity</h2>
+  {% if activity %}
+  <ul class="timeline">
+    {% for event in activity %}
+    <li>
+      <span class="pill pill-{{ 'active' if event.action == 'INSERT' else ('pending' if event.action == 'UPDATE' else 'rejected') }}">{{ event.action }}</span>
+      <span>{{ event.details or '—' }}</span>
+      <small>{{ event.actor or 'system' }} &middot; {{ event.created_at }}</small>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted small">No recorded activity yet.</p>
+  {% endif %}
+  <p class="muted small meta-note">
+    Created {{ person.created_at }}{% if person.created_by %} by {{ person.created_by }}{% endif %}
+    {%- if person.updated_at %} &middot; Last updated {{ person.updated_at }}{% if person.updated_by %} by {{ person.updated_by }}{% endif %}{% endif %}
+  </p>
+</section>
+
+{% if current_user.role in ('analyst', 'admin') %}
+<form id="delete-form" method="post"
+      action="{{ url_for('individuals.delete', individual_id=person.id) }}"
+      class="danger-zone card">
+  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+  <div>
+    <h2>Delete record</h2>
+    <p class="muted small">Permanently removes this individual from the register. This cannot be undone.</p>
+  </div>
+  <button class="btn btn-danger" type="submit">Delete permanently</button>
+</form>
+{% endif %}
+{% endblock %}

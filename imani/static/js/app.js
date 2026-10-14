@@ -58,4 +58,14 @@
     confirm.addEventListener("input", check);
     source.addEventListener("input", check);
   }
+
+  // --- Destructive action confirmation (register) ------------------
+  document.querySelectorAll("[data-confirm-delete]").forEach(function (button) {
+    button.addEventListener("click", function () {
+      var form = document.querySelector(button.dataset.confirmDelete);
+      if (form && window.confirm("Delete this record permanently? This cannot be undone.")) {
+        form.submit();
+      }
+    });
+  });
 })();

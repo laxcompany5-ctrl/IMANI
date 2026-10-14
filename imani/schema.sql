@@ -51,3 +51,46 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 
 CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at DESC);
+
+-- Bit 5 — the individual register ------------------------------------------
+-- People of interest: identity, contact details and the physical traits the
+-- matching engine (Bit 6+) will score against.
+CREATE TABLE IF NOT EXISTS individuals (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- Human-friendly identifier, filled in as "IM-00001" after insert.
+    reference      TEXT    UNIQUE,
+    full_name      TEXT    NOT NULL,
+    alias          TEXT,
+    date_of_birth  TEXT,
+    gender         TEXT    NOT NULL DEFAULT 'unspecified'
+                   CHECK (gender IN ('female', 'male', 'other', 'unspecified')),
+    national_id    TEXT,
+    phone          TEXT,
+    email          TEXT,
+    nationality    TEXT,
+    address        TEXT,
+
+    -- Physical traits used by the matching engine.
+    height_cm      INTEGER,
+    build          TEXT    NOT NULL DEFAULT 'average'
+                   CHECK (build IN ('slim', 'average', 'athletic', 'heavy')),
+    posture        TEXT    NOT NULL DEFAULT 'neutral'
+                   CHECK (posture IN ('upright', 'neutral', 'stooped', 'hunched')),
+    gait           TEXT    NOT NULL DEFAULT 'normal'
+                   CHECK (gait IN ('normal', 'brisk', 'slow', 'limp', 'shuffle')),
+    distinguishing_marks TEXT,
+    notes          TEXT,
+
+    status         TEXT    NOT NULL DEFAULT 'active'
+                   CHECK (status IN ('active', 'archived')),
+
+    -- Provenance -----------------------------------------------------
+    created_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+    created_by     TEXT,
+    updated_at     TEXT,
+    updated_by     TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_individuals_name   ON individuals(full_name);
+CREATE INDEX IF NOT EXISTS idx_individuals_status ON individuals(status);
+CREATE INDEX IF NOT EXISTS idx_individuals_national ON individuals(national_id);

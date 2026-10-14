@@ -189,6 +189,119 @@ class UserRepository:
         return until > datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+class IndividualRepository:
+    """Queries and mutations for the ``individuals`` register."""
+
+    # The writable columns, in a stable order used to build INSERT/UPDATE.
+    COLUMNS = (
+        "full_name", "alias", "date_of_birth", "gender", "national_id",
+        "phone", "email", "nationality", "address", "height_cm", "build",
+        "posture", "gait", "distinguishing_marks", "notes", "status",
+    )
+
+    @staticmethod
+    def get(individual_id: int | None):
+        if not individual_id:
+            return None
+        return get_db().execute(
+            "SELECT * FROM individuals WHERE id = ?", (individual_id,)
+        ).fetchone()
+
+    @staticmethod
+    def get_by_reference(reference: str):
+        if not reference:
+            return None
+        return get_db().execute(
+            "SELECT * FROM individuals WHERE reference = ?", (reference,)
+        ).fetchone()
+
+    @staticmethod
+    def get_by_national_id(national_id: str | None):
+        if not national_id:
+            return None
+        return get_db().execute(
+            "SELECT * FROM individuals WHERE national_id = ?", (national_id,)
+        ).fetchone()
+
+    @staticmethod
+    def create(values: dict, actor: str | None = None) -> int:
+        db = get_db()
+        columns = IndividualRepository.COLUMNS
+        placeholders = ", ".join(f":{c}" for c in columns) + ", :actor"
+        params = {c: values.get(c) for c in columns}
+        params["actor"] = actor
+        cur = db.execute(
+            f"INSERT INTO individuals ({', '.join(columns)}, created_by) "
+            f"VALUES ({placeholders})",
+            params,
+        )
+        individual_id = cur.lastrowid
+        # A friendly reference derived from the row id, e.g. "IM-00042".
+        db.execute(
+            "UPDATE individuals SET reference = ? WHERE id = ?",
+            (f"IM-{individual_id:05d}", individual_id),
+        )
+        db.commit()
+        return individual_id
+
+    @staticmethod
+    def update(individual_id: int, values: dict, actor: str | None = None) -> None:
+        db = get_db()
+        assignments = ", ".join(f"{c} = :{c}" for c in IndividualRepository.COLUMNS)
+        params = {c: values.get(c) for c in IndividualRepository.COLUMNS}
+        params.update({"id": individual_id, "actor": actor, "now": _now()})
+        db.execute(
+            f"UPDATE individuals SET {assignments}, "
+            "updated_at = :now, updated_by = :actor WHERE id = :id",
+            params,
+        )
+        db.commit()
+
+    @staticmethod
+    def delete(individual_id: int) -> None:
+        db = get_db()
+        db.execute("DELETE FROM individuals WHERE id = ?", (individual_id,))
+        db.commit()
+
+    @staticmethod
+    def count() -> int:
+        return get_db().execute(
+            "SELECT COUNT(*) AS n FROM individuals"
+        ).fetchone()["n"]
+
+    @staticmethod
+    def search(q: str | None = None, status: str | None = None,
+               build: str | None = None, limit: int = 20, offset: int = 0):
+        """Return ``(rows, total)`` for the given search terms."""
+        clauses: list[str] = []
+        params: list = []
+        if q:
+            like = f"%{q}%"
+            clauses.append(
+                "(full_name LIKE ? OR alias LIKE ? OR reference LIKE ? "
+                "OR national_id LIKE ? OR phone LIKE ? OR email LIKE ?)"
+            )
+            params.extend([like] * 6)
+        if status:
+            clauses.append("status = ?")
+            params.append(status)
+        if build:
+            clauses.append("build = ?")
+            params.append(build)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+
+        db = get_db()
+        total = db.execute(
+            f"SELECT COUNT(*) AS n FROM individuals {where}", params
+        ).fetchone()["n"]
+        rows = db.execute(
+            f"SELECT * FROM individuals {where} "
+            "ORDER BY full_name COLLATE NOCASE, id LIMIT ? OFFSET ?",
+            (*params, limit, offset),
+        ).fetchall()
+        return rows, total
+
+
 class AuditRepository:
     """Append-only event log."""
 
@@ -228,4 +341,13 @@ class AuditRepository:
             "SELECT action, entity, details, actor, created_at "
             "FROM audit_log ORDER BY id DESC LIMIT ?",
             (limit,),
+        ).fetchall()
+
+    @staticmethod
+    def for_entity(entity: str, entity_id: int, limit: int = 20):
+        """Event history for a single record (e.g. one individual)."""
+        return get_db().execute(
+            "SELECT * FROM audit_log WHERE entity = ? AND entity_id = ? "
+            "ORDER BY id DESC LIMIT ?",
+            (entity, entity_id, limit),
         ).fetchall()

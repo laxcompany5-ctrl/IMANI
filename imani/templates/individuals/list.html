@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}Register{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Individual register</h1>
+    <p class="muted">Search, review and manage the individuals of interest.</p>
+  </div>
+  {% if current_user.role in ('analyst', 'admin') %}
+  <div class="head-actions">
+    <a class="btn btn-primary" href="{{ url_for('individuals.create') }}">Register individual</a>
+  </div>
+  {% endif %}
+</div>
+
+<form class="card searchbar" method="get" action="{{ url_for('individuals.index') }}">
+  <div class="search-input">
+    <input type="search" name="q" value="{{ q }}"
+           placeholder="Search name, alias, reference, ID, phone or email">
+  </div>
+  <select name="status" aria-label="Status">
+    <option value="">All statuses</option>
+    {% for option in statuses %}
+    <option value="{{ option }}" {{ 'selected' if status == option }}>{{ option }}</option>
+    {% endfor %}
+  </select>
+  <select name="build" aria-label="Build">
+    <option value="">Any build</option>
+    {% for option in builds %}
+    <option value="{{ option }}" {{ 'selected' if build == option }}>{{ option }}</option>
+    {% endfor %}
+  </select>
+  <button class="btn btn-primary" type="submit">Search</button>
+  {% if q or status or build %}
+  <a class="btn btn-ghost" href="{{ url_for('individuals.index') }}">Clear</a>
+  {% endif %}
+</form>
+
+<p class="muted small result-count">
+  {{ total }} record{{ '' if total == 1 else 's' }}{% if q %} matching &ldquo;{{ q }}&rdquo;{% endif %}
+</p>
+
+{% if individuals %}
+<div class="card table-wrap">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Reference</th><th>Name</th><th>Traits</th><th>Status</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for person in individuals %}
+      <tr>
+        <td><code>{{ person.reference or '—' }}</code></td>
+        <td>
+          <a href="{{ url_for('individuals.detail', individual_id=person.id) }}">{{ person.full_name }}</a>
+          {% if person.alias %}<span class="muted small">&middot; &ldquo;{{ person.alias }}&rdquo;</span>{% endif %}
+        </td>
+        <td class="muted small">
+          {{ person.height_cm or '—' }}{% if person.height_cm %} cm{% endif %} &middot;
+          {{ person.build }} &middot; {{ person.gait }}
+        </td>
+        <td><span class="pill pill-{{ 'active' if person.status == 'active' else 'disabled' }}">{{ person.status }}</span></td>
+        <td>
+          <div class="row-actions">
+            <a class="btn btn-small" href="{{ url_for('individuals.detail', individual_id=person.id) }}">View</a>
+            {% if current_user.role in ('analyst', 'admin') %}
+            <a class="btn btn-small" href="{{ url_for('individuals.edit', individual_id=person.id) }}">Edit</a>
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if pages > 1 %}
+<nav class="pagination">
+  {% if page > 1 %}
+  <a class="btn btn-small" href="{{ url_for('individuals.index', q=q, status=status, build=build, page=page-1) }}">&larr; Previous</a>
+  {% endif %}
+  <span class="muted small">Page {{ page }} of {{ pages }}</span>
+  {% if page < pages %}
+  <a class="btn btn-small" href="{{ url_for('individuals.index', q=q, status=status, build=build, page=page+1) }}">Next &rarr;</a>
+  {% endif %}
+</nav>
+{% endif %}
+
+{% else %}
+<div class="card empty">
+  <p class="empty-mark">▤</p>
+  <h2>No records found</h2>
+  <p class="muted">
+    {% if q or status or build %}Try a different search.
+    {% else %}Register the first individual to get started.{% endif %}
+  </p>
+</div>
+{% endif %}
+{% endblock %}

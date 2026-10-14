@@ -10,6 +10,14 @@ A security-analyst web app built in small, working increments ("bits").
 > access-request pages, using OAuth 2.0 / OpenID Connect. New Google users
 > become **pending** accounts just like email sign-ups; existing approved
 > accounts are linked and signed in directly.
+>
+> **Bit 4 — Public landing page:** a public home page at `/`; the analyst
+> dashboard lives at `/dashboard`.
+>
+> **Bit 5 — Individual register:** search, insert, update and delete people of
+> interest, with identity, contact and physical-trait fields. Analysts (and
+> admins) can make changes; viewers have read-only access. Every change is
+> written to the audit trail.
 
 ---
 
@@ -119,6 +127,30 @@ single-use `state` value to defeat CSRF and code-interception attacks.
 
 ---
 
+## 3b. The individual register
+
+The register lives at **`/individuals/`** and provides the four essentials:
+
+| Action | Where | Minimum role |
+|--------|-------|--------------|
+| **Search** | `/individuals/?q=…&status=…&build=…` | viewer |
+| **View** | `/individuals/<id>` | viewer |
+| **Insert** | `/individuals/new` | analyst |
+| **Update** | `/individuals/<id>/edit` | analyst |
+| **Delete** | `/individuals/<id>/delete` | analyst |
+
+Each record carries identity fields (name, alias, date of birth, gender,
+national ID, nationality), contact details (phone, email, address) and the
+physical traits the matching engine will use later (`height_cm`, `build`,
+`posture`, `gait`, distinguishing marks). Records get a human-friendly
+**reference** such as `IM-00042`, and can be **archived** instead of deleted.
+
+Search matches across name, alias, reference, national ID, phone and email, and
+can be narrowed by status and build. Each record's detail page shows its own
+activity trail.
+
+---
+
 ## 4. Security measures
 
 | Area | Implementation |
@@ -153,16 +185,17 @@ imani-web/
 ├── imani/
 │   ├── __init__.py         # application factory
 │   ├── config.py           # configuration
-│   ├── schema.sql          # users + audit_log
+│   ├── schema.sql          # users + audit_log + individuals
 │   ├── db.py               # SQLite helpers + CLI (init-db, reset-db, seed, migrate)
 │   ├── security.py         # CSRF protection
-│   ├── validation.py       # username/email/password rules
-│   ├── models.py           # UserRepository, AuditRepository
+│   ├── validation.py       # username/email/password + register field rules
+│   ├── models.py           # UserRepository, IndividualRepository, AuditRepository
 │   ├── auth.py             # authenticate, sessions, roles, lockout
 │   ├── oauth.py            # Google OAuth 2.0 / OIDC (stdlib only)
 │   ├── routes/
 │   │   ├── home.py         # /  (public landing page)
 │   │   ├── auth_routes.py  # login, signup, logout, /auth/google[/callback]
+│   │   ├── individuals.py  # /individuals  (search / insert / update / delete)
 │   │   ├── admin.py        # /admin/approvals, /admin/users
 │   │   └── dashboard.py    # /dashboard
 │   ├── templates/          # Jinja2 pages
@@ -171,7 +204,8 @@ imani-web/
     ├── conftest.py
     ├── test_auth.py        # sign-up, approval gate, lockout, RBAC
     ├── test_google.py      # Google OAuth flow (mocked endpoints)
-    └── test_home.py        # public landing page
+    ├── test_home.py        # public landing page
+    └── test_individuals.py # register CRUD + search + access control
 ```
 
 ---
@@ -206,5 +240,5 @@ is in `deploy/DEPLOY.md`.
 - **Bit 2 (done)** — Google sign-in (OAuth 2.0 / OIDC) on login and sign-up.
 - **Bit 3 (done)** — Production deployment: gunicorn, nginx, systemd, HTTPS, `.env`.
 - **Bit 4 (done)** — Public landing page at `/`; dashboard moved to `/dashboard`; purple theme.
-- **Bit 5** — The individual register (search / insert / update / delete).
+- **Bit 5 (done)** — The individual register (search / insert / update / delete).
 - **Bit 6+** — Matching engine, reporting, deployment hardening.

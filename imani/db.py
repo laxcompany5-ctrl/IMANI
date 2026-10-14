@@ -50,7 +50,8 @@ def reset_db_command() -> None:
     """Drop every table and recreate an empty database (development only)."""
     db = get_db()
     db.executescript(
-        "DROP TABLE IF EXISTS audit_log; DROP TABLE IF EXISTS users;"
+        "DROP TABLE IF EXISTS audit_log; DROP TABLE IF EXISTS individuals; "
+        "DROP TABLE IF EXISTS users;"
     )
     db.commit()
     init_db()
@@ -91,8 +92,14 @@ def migrate_command() -> None:
         if name not in existing:
             db.execute(ddl)
             added.append(name)
-    db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google ON users(google_id)")
+
+    # Create any tables/indexes introduced by later bits. Every statement in
+    # schema.sql is "IF NOT EXISTS", so this is safe to re-run and will also
+    # backfill the google_id unique index once the columns above exist.
+    with current_app.open_resource("schema.sql") as fh:
+        db.executescript(fh.read().decode("utf-8"))
     db.commit()
+
     if added:
         click.echo("Added column(s): " + ", ".join(added) + ".")
     else:

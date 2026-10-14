@@ -18,6 +18,10 @@
 
 <div class="stat-grid">
   <div class="card stat">
+    <a class="stat-value" href="{{ url_for('individuals.index') }}">{{ individuals }}</a>
+    <span class="stat-label">Individuals on file</span>
+  </div>
+  <div class="card stat">
     <span class="stat-value">{{ active }}</span>
     <span class="stat-label">Active accounts</span>
   </div>
@@ -25,16 +29,22 @@
     <span class="stat-value">{{ counts.get('pending', 0) }}</span>
     <span class="stat-label">Pending approvals</span>
   </div>
-  <div class="card stat">
-    <span class="stat-value">{{ counts.get('disabled', 0) }}</span>
-    <span class="stat-label">Disabled</span>
+</div>
+
+<div class="card">
+  <h2>Individual register</h2>
+  <p class="muted">Search, insert, update and delete individuals of interest. Every change
+    is written to the audit trail alongside each record.</p>
+  <div class="form-actions">
+    <a class="btn btn-primary" href="{{ url_for('individuals.index') }}">Open register</a>
+    {% if current_user.role in ('analyst', 'admin') %}
+    <a class="btn" href="{{ url_for('individuals.create') }}">Register individual</a>
+    {% endif %}
   </div>
 </div>
 
 <div class="card">
-  <h2>Bits 1–2 — Authentication</h2>
-  <p class="muted">The sign-in, access-request and Google sign-in flows are in place.
-    Accounts remain <span class="pill pill-pending">pending</span> until an administrator approves them.</p>
+  <h2>Access &amp; security</h2>
   <ul class="checklist">
     <li>Secure password sign-in with brute-force lockout</li>
     <li>One-click <strong>Continue with Google</strong> (OAuth 2.0 + PKCE)</li>

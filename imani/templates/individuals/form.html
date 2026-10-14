@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Register individual' if mode == 'create' else 'Edit individual' }}{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>{{ 'Register individual' if mode == 'create' else 'Edit individual' }}</h1>
+    {% if mode == 'edit' and individual_id %}
+    <p class="muted">Editing <code>{{ values.reference }}</code></p>
+    {% else %}
+    <p class="muted">Add a person of interest to the register.</p>
+    {% endif %}
+  </div>
+  <div class="head-actions">
+    <a class="btn btn-ghost" href="{{ url_for('individuals.index') }}">Back to register</a>
+  </div>
+</div>
+
+<form class="card form-grid" method="post" action="{{ action }}">
+  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+
+  <fieldset class="form-section">
+    <legend>Identity</legend>
+    <div class="field">
+      <label for="full_name">Full name <span class="req">*</span></label>
+      <input id="full_name" name="full_name" value="{{ values.full_name or '' }}"
+             required maxlength="120" autocomplete="off">
+    </div>
+    <div class="field">
+      <label for="alias">Known alias</label>
+      <input id="alias" name="alias" value="{{ values.alias or '' }}" autocomplete="off">
+    </div>
+    <div class="form-row">
+      <div class="field">
+        <label for="date_of_birth">Date of birth</label>
+        <input id="date_of_birth" name="date_of_birth" type="date" value="{{ values.date_of_birth or '' }}">
+      </div>
+      <div class="field">
+        <label for="gender">Gender</label>
+        <select id="gender" name="gender">
+          {% for option in genders %}
+          <option value="{{ option }}" {{ 'selected' if values.gender == option }}>{{ option }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="field">
+        <label for="national_id">National ID</label>
+        <input id="national_id" name="national_id" value="{{ values.national_id or '' }}" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="nationality">Nationality</label>
+        <input id="nationality" name="nationality" value="{{ values.nationality or '' }}" autocomplete="off">
+      </div>
+    </div>
+  </fieldset>
+
+  <fieldset class="form-section">
+    <legend>Contact &amp; residence</legend>
+    <div class="form-row">
+      <div class="field">
+        <label for="phone">Phone</label>
+        <input id="phone" name="phone" value="{{ values.phone or '' }}" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="email">Email</label>
+        <input id="email" name="email" value="{{ values.email or '' }}" autocomplete="off">
+      </div>
+    </div>
+    <div class="field">
+      <label for="address">Address</label>
+      <textarea id="address" name="address" rows="2">{{ values.address or '' }}</textarea>
+    </div>
+  </fieldset>
+
+  <fieldset class="form-section">
+    <legend>Physical traits</legend>
+    <div class="form-row">
+      <div class="field">
+        <label for="height_cm">Height (cm)</label>
+        <input id="height_cm" name="height_cm" type="number" min="50" max="260"
+               value="{{ values.height_cm if values.height_cm is not none else '' }}">
+      </div>
+      <div class="field">
+        <label for="build">Build</label>
+        <select id="build" name="build">
+          {% for option in builds %}
+          <option value="{{ option }}" {{ 'selected' if values.build == option }}>{{ option }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="field">
+        <label for="posture">Posture</label>
+        <select id="posture" name="posture">
+          {% for option in postures %}
+          <option value="{{ option }}" {{ 'selected' if values.posture == option }}>{{ option }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="gait">Gait</label>
+        <select id="gait" name="gait">
+          {% for option in gaits %}
+          <option value="{{ option }}" {{ 'selected' if values.gait == option }}>{{ option }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <div class="field">
+      <label for="distinguishing_marks">Distinguishing marks</label>
+      <textarea id="distinguishing_marks" name="distinguishing_marks" rows="2">{{ values.distinguishing_marks or '' }}</textarea>
+    </div>
+  </fieldset>
+
+  <fieldset class="form-section">
+    <legend>Case notes</legend>
+    <div class="field">
+      <label for="notes">Notes</label>
+      <textarea id="notes" name="notes" rows="3">{{ values.notes or '' }}</textarea>
+    </div>
+    <div class="field">
+      <label for="status">Status</label>
+      <select id="status" name="status">
+        {% for option in statuses %}
+        <option value="{{ option }}" {{ 'selected' if values.status == option }}>{{ option }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </fieldset>
+
+  <div class="form-actions span-all">
+    <button class="btn btn-primary" type="submit">
+      {{ 'Register individual' if mode == 'create' else 'Save changes' }}
+    </button>
+    <a class="btn btn-ghost" href="{{ url_for('individuals.index') }}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

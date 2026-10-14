@@ -11,7 +11,7 @@ bp = Blueprint("dashboard", __name__)
 @bp.route("/dashboard")
 @auth.login_required
 def index():
-    from ..models import UserRepository
+    from ..models import IndividualRepository, UserRepository
 
     counts = UserRepository.count_by_status()
     return render_template(
@@ -19,4 +19,5 @@ def index():
         counts=counts,
         pending=counts.get("pending", 0),
         active=counts.get("active", 0),
+        individuals=IndividualRepository.count(),
     )
