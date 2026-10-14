@@ -18,6 +18,12 @@ A security-analyst web app built in small, working increments ("bits").
 > interest, with identity, contact and physical-trait fields. Analysts (and
 > admins) can make changes; viewers have read-only access. Every change is
 > written to the audit trail.
+>
+> **Bit 6 — Matching engine:** run a *probe* (observed traits) and rank the
+> register by weighted similarity — gait 25%, height 25%, face 20%, build 15%,
+> posture 15% — with a confidence band (HIGH → VERY LOW). Face is compared by
+> cosine similarity of optional templates from an external tool; runs are saved.
+> Analysts run matches; any signed-in user can review the history.
 
 ---
 
@@ -151,6 +157,53 @@ activity trail.
 
 ---
 
+## 3c. The matching engine
+
+Open **`/match/`** and enter whatever you observed for a subject — height,
+build, posture, gait and (optionally) a face template. IMANI scores every
+**active** individual against the probe and returns the ranked candidates at
+`/match/<run>`.
+
+### How a score is computed
+
+Each *comparable* trait returns a similarity in `[0, 1]`:
+
+| Trait | Weight | Similarity |
+|-------|--------|------------|
+| Gait | 25% | exact = 1.0; same pace group = 0.5; else 0 |
+| Height | 25% | `1 − |Δcm| / 8` (0 beyond 8 cm) |
+| Face | 20% | cosine similarity of the two templates (`max(0, cos)`) |
+| Build | 15% | ordinal: exact = 1.0, each step apart −0.5 |
+| Posture | 15% | ordinal, as build |
+
+A trait is only compared when **both** the probe and the record provide it; the
+weights of the compared traits are **re-normalised** so a partial probe still
+yields a comparable 0–100 score. That score maps to a band:
+
+| Score | Band |
+|-------|------|
+| ≥ 85 | **HIGH** |
+| 70–84 | **MODERATE** |
+| 55–69 | **LOW** |
+| < 55 | **VERY LOW** |
+
+### Face templates
+
+Face data comes from an external facial-recognition tool: paste its numeric
+vector into the individual's record (and/or the probe). Templates are compared
+with cosine similarity, so unrelated faces (orthogonal vectors) score 0. When a
+record or the probe has no template, face drops out and the other weights are
+re-normalised — no template is required to use the engine.
+
+### Saved runs
+
+Every run is stored as a `match_runs` row with its `match_results`, so it can be
+reviewed at **`/match/history`**. Results snapshot the candidate's name and
+reference, so they survive even if the individual is later deleted. Runs are
+audited (`MATCH` / `DELETE`) and can be removed by an analyst.
+
+---
+
 ## 4. Security measures
 
 | Area | Implementation |
@@ -185,17 +238,19 @@ imani-web/
 ├── imani/
 │   ├── __init__.py         # application factory
 │   ├── config.py           # configuration
-│   ├── schema.sql          # users + audit_log + individuals
+│   ├── schema.sql          # users + audit_log + individuals + match tables
 │   ├── db.py               # SQLite helpers + CLI (init-db, reset-db, seed, migrate)
 │   ├── security.py         # CSRF protection
 │   ├── validation.py       # username/email/password + register field rules
-│   ├── models.py           # UserRepository, IndividualRepository, AuditRepository
+│   ├── models.py           # User/Individual/Match/Audit repositories
+│   ├── matching.py         # the scoring engine (weights, bands, cosine)
 │   ├── auth.py             # authenticate, sessions, roles, lockout
 │   ├── oauth.py            # Google OAuth 2.0 / OIDC (stdlib only)
 │   ├── routes/
 │   │   ├── home.py         # /  (public landing page)
 │   │   ├── auth_routes.py  # login, signup, logout, /auth/google[/callback]
 │   │   ├── individuals.py  # /individuals  (search / insert / update / delete)
+│   │   ├── match.py        # /match  (run a probe, history, results)
 │   │   ├── admin.py        # /admin/approvals, /admin/users
 │   │   └── dashboard.py    # /dashboard
 │   ├── templates/          # Jinja2 pages
@@ -205,7 +260,8 @@ imani-web/
     ├── test_auth.py        # sign-up, approval gate, lockout, RBAC
     ├── test_google.py      # Google OAuth flow (mocked endpoints)
     ├── test_home.py        # public landing page
-    └── test_individuals.py # register CRUD + search + access control
+    ├── test_individuals.py # register CRUD + search + access control
+    └── test_matching.py    # scoring, bands, /match flow
 ```
 
 ---
@@ -241,4 +297,5 @@ is in `deploy/DEPLOY.md`.
 - **Bit 3 (done)** — Production deployment: gunicorn, nginx, systemd, HTTPS, `.env`.
 - **Bit 4 (done)** — Public landing page at `/`; dashboard moved to `/dashboard`; purple theme.
 - **Bit 5 (done)** — The individual register (search / insert / update / delete).
-- **Bit 6+** — Matching engine, reporting, deployment hardening.
+- **Bit 6 (done)** — Matching engine: weighted trait scoring, confidence bands, saved runs.
+- **Bit 7+** — Reporting, exports, deployment hardening.

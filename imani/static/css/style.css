@@ -488,6 +488,53 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 }
 .danger-zone h2 { color: #fecaca; }
 
+/* ---------- Matching engine (Bit 6) ---------- */
+.section-title { font-size: 1.15rem; margin: 1.6rem 0 .9rem; }
+
+.probe-summary { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .2rem; }
+
+.band {
+  display: inline-block; padding: .2rem .6rem; border-radius: 999px;
+  font-size: .7rem; font-weight: 700; letter-spacing: .6px; text-transform: uppercase;
+}
+.band-high      { background: rgba(34, 197, 94, .18);  color: #86efac; }
+.band-moderate  { background: rgba(168, 85, 247, .20); color: #d8b4fe; }
+.band-low       { background: rgba(251, 191, 36, .18); color: #fcd34d; }
+.band-very-low  { background: rgba(248, 113, 113, .16); color: #fecaca; }
+
+.result-list { display: grid; gap: .9rem; }
+.result-card {
+  display: grid; grid-template-columns: auto 1fr;
+  gap: 1.2rem; align-items: start;
+}
+.result-score {
+  display: flex; flex-direction: column; align-items: center; gap: .4rem;
+  min-width: 92px;
+}
+.result-score .value {
+  font-size: 2.1rem; font-weight: 800; letter-spacing: -1px; line-height: 1;
+  background: linear-gradient(90deg, var(--accent), var(--primary));
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.result-card h3 { margin: 0 0 .5rem; font-size: 1.02rem; display: flex; gap: .5rem; align-items: baseline; flex-wrap: wrap; }
+.result-card h3 .small { font-weight: 400; }
+
+.breakdown { display: grid; gap: .4rem; }
+.breakdown-row {
+  display: grid; grid-template-columns: 76px 1fr 44px;
+  align-items: center; gap: .55rem;
+  font-size: .8rem; color: var(--muted);
+}
+.breakdown-row .bar {
+  height: 7px; border-radius: 999px; background: var(--bg);
+  overflow: hidden; border: 1px solid var(--border);
+}
+.breakdown-row .bar > span {
+  display: block; height: 100%; border-radius: 999px;
+  background: linear-gradient(90deg, var(--primary), var(--accent));
+}
+.breakdown-row > span:last-child { text-align: right; color: var(--text); }
+
 /* ---------- Responsive ---------- */
 @media (max-width: 900px) {
   .hero { grid-template-columns: 1fr; }

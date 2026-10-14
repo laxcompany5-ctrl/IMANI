@@ -22,6 +22,10 @@
     <span class="stat-label">Individuals on file</span>
   </div>
   <div class="card stat">
+    <a class="stat-value" href="{{ url_for('match.history') }}">{{ matches }}</a>
+    <span class="stat-label">Match runs</span>
+  </div>
+  <div class="card stat">
     <span class="stat-value">{{ active }}</span>
     <span class="stat-label">Active accounts</span>
   </div>
@@ -39,6 +43,7 @@
     <a class="btn btn-primary" href="{{ url_for('individuals.index') }}">Open register</a>
     {% if current_user.role in ('analyst', 'admin') %}
     <a class="btn" href="{{ url_for('individuals.create') }}">Register individual</a>
+    <a class="btn" href="{{ url_for('match.run') }}">Run a match</a>
     {% endif %}
   </div>
 </div>

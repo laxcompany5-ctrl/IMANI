@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Match {{ run.reference }}{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>{{ run.title }}</h1>
+    <p class="muted">
+      <code>{{ run.reference }}</code>
+      &middot; {{ run.result_count }} candidate{{ '' if run.result_count == 1 else 's' }}
+      &middot; {{ run.created_at }}{% if run.created_by %} by {{ run.created_by }}{% endif %}
+    </p>
+  </div>
+  <div class="head-actions">
+    <a class="btn btn-ghost" href="{{ url_for('match.history') }}">History</a>
+    <a class="btn" href="{{ url_for('match.run') }}">New match</a>
+    {% if current_user.role in ('analyst', 'admin') %}
+    <button class="btn btn-danger" type="button" data-confirm-delete="#delete-run">Delete</button>
+    {% endif %}
+  </div>
+</div>
+
+<section class="card">
+  <h2>Probe</h2>
+  <div class="probe-summary">
+    <span class="chip">Height <strong>{{ run.probe_height_cm or '—' }}{% if run.probe_height_cm %} cm{% endif %}</strong></span>
+    <span class="chip">Build <strong>{{ run.probe_build or '—' }}</strong></span>
+    <span class="chip">Posture <strong>{{ run.probe_posture or '—' }}</strong></span>
+    <span class="chip">Gait <strong>{{ run.probe_gait or '—' }}</strong></span>
+    <span class="chip">Face <strong>{{ 'template supplied' if run.probe_face else '—' }}</strong></span>
+    <span class="chip">Min score <strong>{{ run.min_score|int }}</strong></span>
+  </div>
+  {% if run.notes %}<p class="muted small">Notes: {{ run.notes }}</p>{% endif %}
+</section>
+
+<h2 class="section-title">Ranked candidates</h2>
+
+{% if results %}
+<div class="result-list">
+  {% for result in results %}
+  <article class="card result-card">
+    <div class="result-score">
+      <span class="value">{{ result.score }}</span>
+      <span class="band band-{{ result.band|lower|replace(' ', '-') }}">{{ result.band }}</span>
+    </div>
+    <div>
+      <h3>
+        {% if result.individual_id %}
+        <a href="{{ url_for('individuals.detail', individual_id=result.individual_id) }}">{{ result.individual_name }}</a>
+        {% else %}{{ result.individual_name }}{% endif %}
+        <span class="muted small"><code>{{ result.individual_reference or '—' }}</code></span>
+      </h3>
+      <div class="breakdown">
+        {% for trait in ('height_cm', 'gait', 'face', 'build', 'posture') %}
+        {% if trait in result.breakdown %}
+        <div class="breakdown-row">
+          <span>{{ labels[trait] }}</span>
+          <span class="bar"><span style="width: {{ (result.breakdown[trait].similarity * 100)|round(1) }}%"></span></span>
+          <span>{{ (result.breakdown[trait].similarity * 100)|round(0)|int }}%</span>
+        </div>
+        {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+  </article>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card empty">
+  <p class="empty-mark">◎</p>
+  <h2>No candidates matched</h2>
+  <p class="muted">No individual scored above the minimum. Try lowering the minimum score.</p>
+</div>
+{% endif %}
+
+{% if current_user.role in ('analyst', 'admin') %}
+<form id="delete-run" method="post"
+      action="{{ url_for('match.delete', run_id=run.id) }}"
+      class="danger-zone card">
+  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+  <div>
+    <h2>Delete run</h2>
+    <p class="muted small">Removes this match and its candidates. This cannot be undone.</p>
+  </div>
+  <button class="btn btn-danger" type="submit">Delete run</button>
+</form>
+{% endif %}
+{% endblock %}

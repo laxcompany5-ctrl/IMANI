@@ -58,6 +58,7 @@ def _collect(form) -> dict:
         "posture": _enum(form.get("posture"), POSTURE_OPTIONS, "neutral"),
         "gait": _enum(form.get("gait"), GAIT_OPTIONS, "normal"),
         "distinguishing_marks": (form.get("distinguishing_marks") or "").strip() or None,
+        "face_template": (form.get("face_template") or "").strip() or None,
         "notes": (form.get("notes") or "").strip() or None,
         "status": _enum(form.get("status"), INDIVIDUAL_STATUSES, "active"),
     }

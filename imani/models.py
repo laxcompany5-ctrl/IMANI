@@ -1,6 +1,7 @@
 """Data-access repositories (thin wrappers over SQLite)."""
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime, timedelta, timezone
 
@@ -196,7 +197,8 @@ class IndividualRepository:
     COLUMNS = (
         "full_name", "alias", "date_of_birth", "gender", "national_id",
         "phone", "email", "nationality", "address", "height_cm", "build",
-        "posture", "gait", "distinguishing_marks", "notes", "status",
+        "posture", "gait", "distinguishing_marks", "face_template", "notes",
+        "status",
     )
 
     @staticmethod
@@ -264,6 +266,18 @@ class IndividualRepository:
         db.commit()
 
     @staticmethod
+    def all(status: str | None = None):
+        if status:
+            return get_db().execute(
+                "SELECT * FROM individuals WHERE status = ? "
+                "ORDER BY full_name COLLATE NOCASE, id",
+                (status,),
+            ).fetchall()
+        return get_db().execute(
+            "SELECT * FROM individuals ORDER BY full_name COLLATE NOCASE, id"
+        ).fetchall()
+
+    @staticmethod
     def count() -> int:
         return get_db().execute(
             "SELECT COUNT(*) AS n FROM individuals"
@@ -300,6 +314,92 @@ class IndividualRepository:
             (*params, limit, offset),
         ).fetchall()
         return rows, total
+
+
+class MatchRepository:
+    """Persisted match runs (probes) and their ranked candidates."""
+
+    @staticmethod
+    def create_run(values: dict, actor: str | None = None) -> int:
+        db = get_db()
+        cur = db.execute(
+            "INSERT INTO match_runs (title, probe_height_cm, probe_build, "
+            "probe_posture, probe_gait, probe_face, min_score, notes, "
+            "traits_used, result_count, created_by) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                values.get("title"), values.get("probe_height_cm"),
+                values.get("probe_build"), values.get("probe_posture"),
+                values.get("probe_gait"), values.get("probe_face"),
+                values.get("min_score", 0), values.get("notes"),
+                values.get("traits_used"), values.get("result_count", 0), actor,
+            ),
+        )
+        run_id = cur.lastrowid
+        db.execute(
+            "UPDATE match_runs SET reference = ? WHERE id = ?",
+            (f"MR-{run_id:05d}", run_id),
+        )
+        db.commit()
+        return run_id
+
+    @staticmethod
+    def add_results(run_id: int, results: list[dict]) -> None:
+        if not results:
+            return
+        db = get_db()
+        db.executemany(
+            "INSERT INTO match_results (run_id, individual_id, individual_name, "
+            "individual_reference, score, band, breakdown) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    run_id, r.get("individual_id"), r.get("individual_name"),
+                    r.get("individual_reference"), r["score"], r["band"],
+                    json.dumps(r.get("breakdown", {})),
+                )
+                for r in results
+            ],
+        )
+        db.commit()
+
+    @staticmethod
+    def get_run(run_id: int | None):
+        if not run_id:
+            return None
+        return get_db().execute(
+            "SELECT * FROM match_runs WHERE id = ?", (run_id,)
+        ).fetchone()
+
+    @staticmethod
+    def results_for(run_id: int) -> list[dict]:
+        rows = get_db().execute(
+            "SELECT * FROM match_results WHERE run_id = ? "
+            "ORDER BY score DESC, id",
+            (run_id,),
+        ).fetchall()
+        return [
+            {**dict(row), "breakdown": json.loads(row["breakdown"] or "{}")}
+            for row in rows
+        ]
+
+    @staticmethod
+    def recent_runs(limit: int = 50):
+        return get_db().execute(
+            "SELECT * FROM match_runs ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+
+    @staticmethod
+    def count() -> int:
+        return get_db().execute(
+            "SELECT COUNT(*) AS n FROM match_runs"
+        ).fetchone()["n"]
+
+    @staticmethod
+    def delete_run(run_id: int) -> None:
+        db = get_db()
+        db.execute("DELETE FROM match_runs WHERE id = ?", (run_id,))
+        db.commit()
 
 
 class AuditRepository:

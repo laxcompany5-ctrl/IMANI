@@ -50,6 +50,7 @@ def reset_db_command() -> None:
     """Drop every table and recreate an empty database (development only)."""
     db = get_db()
     db.executescript(
+        "DROP TABLE IF EXISTS match_results; DROP TABLE IF EXISTS match_runs; "
         "DROP TABLE IF EXISTS audit_log; DROP TABLE IF EXISTS individuals; "
         "DROP TABLE IF EXISTS users;"
     )
@@ -76,32 +77,49 @@ def seed_command() -> None:
         click.echo("Users already exist — no seed account created.")
 
 
+def _table_columns(db, table: str) -> set[str]:
+    return {row["name"] for row in db.execute(f"PRAGMA table_info({table})")}
+
+
 @click.command("migrate")
 def migrate_command() -> None:
-    """Add columns introduced by later 'bits' (safe to re-run)."""
+    """Add columns/tables introduced by later 'bits' (safe to re-run)."""
     db = get_db()
-    existing = {row["name"] for row in db.execute("PRAGMA table_info(users)")}
-    additions = (
+    added: list[str] = []
+
+    # 1. Columns added to `users` by Bit 2. These must exist before schema.sql
+    #    runs, because its google_id index references the column.
+    user_additions = (
         ("google_id", "ALTER TABLE users ADD COLUMN google_id TEXT"),
         ("avatar_url", "ALTER TABLE users ADD COLUMN avatar_url TEXT"),
         ("auth_provider",
          "ALTER TABLE users ADD COLUMN auth_provider TEXT NOT NULL DEFAULT 'password'"),
     )
-    added = []
-    for name, ddl in additions:
-        if name not in existing:
+    for name, ddl in user_additions:
+        if name not in _table_columns(db, "users"):
             db.execute(ddl)
-            added.append(name)
+            added.append(f"users.{name}")
 
-    # Create any tables/indexes introduced by later bits. Every statement in
-    # schema.sql is "IF NOT EXISTS", so this is safe to re-run and will also
-    # backfill the google_id unique index once the columns above exist.
+    # 2. Create any tables/indexes introduced by later bits. Every statement in
+    #    schema.sql is "IF NOT EXISTS", so this is safe to re-run.
     with current_app.open_resource("schema.sql") as fh:
         db.executescript(fh.read().decode("utf-8"))
+
+    # 3. Columns added to `individuals` by Bit 6 (only if the table existed
+    #    before step 2; a fresh table already includes them).
+    individual_additions = (
+        ("face_template", "ALTER TABLE individuals ADD COLUMN face_template TEXT"),
+    )
+    if _table_columns(db, "individuals"):
+        for name, ddl in individual_additions:
+            if name not in _table_columns(db, "individuals"):
+                db.execute(ddl)
+                added.append(f"individuals.{name}")
+
     db.commit()
 
     if added:
-        click.echo("Added column(s): " + ", ".join(added) + ".")
+        click.echo("Added: " + ", ".join(added) + ".")
     else:
         click.echo("Database already up to date.")
 

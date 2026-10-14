@@ -79,6 +79,9 @@ CREATE TABLE IF NOT EXISTS individuals (
     gait           TEXT    NOT NULL DEFAULT 'normal'
                    CHECK (gait IN ('normal', 'brisk', 'slow', 'limp', 'shuffle')),
     distinguishing_marks TEXT,
+    -- Optional face embedding from an external facial-recognition tool,
+    -- stored as comma-separated numbers and compared via cosine similarity.
+    face_template  TEXT,
     notes          TEXT,
 
     status         TEXT    NOT NULL DEFAULT 'active'
@@ -94,3 +97,43 @@ CREATE TABLE IF NOT EXISTS individuals (
 CREATE INDEX IF NOT EXISTS idx_individuals_name   ON individuals(full_name);
 CREATE INDEX IF NOT EXISTS idx_individuals_status ON individuals(status);
 CREATE INDEX IF NOT EXISTS idx_individuals_national ON individuals(national_id);
+
+-- Bit 6 — the matching engine ----------------------------------------------
+-- A *match run* is a probe: the traits an analyst observed for a subject.
+-- Each run keeps its ranked candidates so it can be reviewed later.
+CREATE TABLE IF NOT EXISTS match_runs (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    reference       TEXT    UNIQUE,          -- "MR-00001", filled after insert
+    title           TEXT,
+    probe_height_cm INTEGER,
+    probe_build     TEXT,
+    probe_posture   TEXT,
+    probe_gait      TEXT,
+    probe_face      TEXT,
+    min_score       REAL    NOT NULL DEFAULT 0,
+    notes           TEXT,
+    -- The trait keys that were actually comparable for this run.
+    traits_used     TEXT,
+    result_count    INTEGER NOT NULL DEFAULT 0,
+    created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+    created_by      TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_match_runs_created ON match_runs(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS match_results (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id               INTEGER NOT NULL
+                         REFERENCES match_runs(id) ON DELETE CASCADE,
+    -- The individual may be deleted later; we keep a name snapshot.
+    individual_id        INTEGER REFERENCES individuals(id) ON DELETE SET NULL,
+    individual_name      TEXT,
+    individual_reference TEXT,
+    score                REAL    NOT NULL,
+    band                 TEXT    NOT NULL,
+    -- Per-trait similarities, stored as JSON.
+    breakdown            TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_match_results_run ON match_results(run_id);
+CREATE INDEX IF NOT EXISTS idx_match_results_rank ON match_results(run_id, score DESC);

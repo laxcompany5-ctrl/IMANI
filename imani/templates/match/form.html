@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}New match{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Run a match</h1>
+    <p class="muted">Enter the traits you observed; IMANI ranks the register by similarity.</p>
+  </div>
+  <div class="head-actions">
+    <a class="btn btn-ghost" href="{{ url_for('match.history') }}">Match history</a>
+  </div>
+</div>
+
+<form class="card form-grid" method="post" action="{{ url_for('match.run') }}">
+  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+
+  <fieldset class="form-section">
+    <legend>Probe</legend>
+    <div class="field">
+      <label for="title">Title</label>
+      <input id="title" name="title" value="{{ values.title }}"
+             placeholder="e.g. Checkpoint 04 — 14 Oct" autocomplete="off">
+    </div>
+    <div class="form-row">
+      <div class="field">
+        <label for="height_cm">Height (cm)</label>
+        <input id="height_cm" name="height_cm" type="number" min="50" max="260"
+               value="{{ values.height_cm }}">
+      </div>
+      <div class="field">
+        <label for="gait">Gait</label>
+        <select id="gait" name="gait">
+          <option value="">Not observed</option>
+          {% for option in gaits %}
+          <option value="{{ option }}" {{ 'selected' if values.gait == option }}>{{ option }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="field">
+        <label for="build">Build</label>
+        <select id="build" name="build">
+          <option value="">Not observed</option>
+          {% for option in builds %}
+          <option value="{{ option }}" {{ 'selected' if values.build == option }}>{{ option }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="posture">Posture</label>
+        <select id="posture" name="posture">
+          <option value="">Not observed</option>
+          {% for option in postures %}
+          <option value="{{ option }}" {{ 'selected' if values.posture == option }}>{{ option }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+  </fieldset>
+
+  <fieldset class="form-section">
+    <legend>Face &amp; tuning</legend>
+    <div class="field">
+      <label for="face_template">Face template</label>
+      <textarea id="face_template" name="face_template" rows="3"
+                placeholder="Numbers from an external facial-recognition tool, e.g. 0.12, -0.44, 0.98">{{ values.face_template }}</textarea>
+      <span class="hint">Optional. Compared with each record's stored template using cosine similarity.</span>
+    </div>
+    <div class="field">
+      <label for="min_score">Minimum score</label>
+      <input id="min_score" name="min_score" type="number" min="0" max="100" step="1"
+             value="{{ values.min_score }}">
+      <span class="hint">Hide candidates below this score (0 keeps everything).</span>
+    </div>
+    <div class="field">
+      <label for="notes">Notes</label>
+      <textarea id="notes" name="notes" rows="2">{{ values.notes }}</textarea>
+    </div>
+  </fieldset>
+
+  <div class="form-actions span-all">
+    <button class="btn btn-primary" type="submit">Run match</button>
+    <a class="btn btn-ghost" href="{{ url_for('individuals.index') }}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

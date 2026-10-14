@@ -113,6 +113,12 @@
       <label for="distinguishing_marks">Distinguishing marks</label>
       <textarea id="distinguishing_marks" name="distinguishing_marks" rows="2">{{ values.distinguishing_marks or '' }}</textarea>
     </div>
+    <div class="field">
+      <label for="face_template">Face template</label>
+      <textarea id="face_template" name="face_template" rows="2"
+                placeholder="Numbers from an external facial-recognition tool">{{ values.face_template or '' }}</textarea>
+      <span class="hint">Optional. Used by the matching engine (cosine similarity).</span>
+    </div>
   </fieldset>
 
   <fieldset class="form-section">

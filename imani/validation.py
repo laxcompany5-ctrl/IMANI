@@ -80,4 +80,12 @@ def individual_problems(values: dict) -> list[str]:
     if phone and not (5 <= len(phone) <= 32):
         problems.append("enter a valid phone number")
 
+    face = values.get("face_template")
+    if face:
+        from .matching import parse_template
+
+        _, error = parse_template(face)
+        if error:
+            problems.append("use a face template of two or more numbers")
+
     return problems

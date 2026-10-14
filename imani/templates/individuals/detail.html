@@ -40,6 +40,7 @@
       <span class="chip">Build <strong>{{ person.build }}</strong></span>
       <span class="chip">Posture <strong>{{ person.posture }}</strong></span>
       <span class="chip">Gait <strong>{{ person.gait }}</strong></span>
+      <span class="chip">Face <strong>{{ 'on file' if person.face_template else '—' }}</strong></span>
     </div>
     {% if person.distinguishing_marks %}
     <p class="muted small marks-note">Marks: {{ person.distinguishing_marks }}</p>

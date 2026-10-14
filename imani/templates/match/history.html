@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Match history{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Match history</h1>
+    <p class="muted">Every probe run, most recent first.</p>
+  </div>
+  {% if current_user.role in ('analyst', 'admin') %}
+  <div class="head-actions">
+    <a class="btn btn-primary" href="{{ url_for('match.run') }}">New match</a>
+  </div>
+  {% endif %}
+</div>
+
+{% if runs %}
+<div class="card table-wrap">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Reference</th><th>Title</th><th>Traits</th>
+        <th>Candidates</th><th>Run</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in runs %}
+      <tr>
+        <td><code>{{ item.reference }}</code></td>
+        <td><a href="{{ url_for('match.results', run_id=item.id) }}">{{ item.title or 'Untitled probe' }}</a></td>
+        <td class="muted small">{{ item.traits_used or '—' }}</td>
+        <td>{{ item.result_count }}</td>
+        <td class="muted small">{{ item.created_at }}<br>{{ item.created_by or 'system' }}</td>
+        <td>
+          <a class="btn btn-small" href="{{ url_for('match.results', run_id=item.id) }}">View</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="card empty">
+  <p class="empty-mark">◎</p>
+  <h2>No match runs yet</h2>
+  <p class="muted">Run a match against the register to see ranked candidates here.</p>
+</div>
+{% endif %}
+{% endblock %}
