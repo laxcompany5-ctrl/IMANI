@@ -1,0 +1,10 @@
+# Extra dependencies for the IMANI capture agent's *video* path.
+#
+# The rest of the agent (trait maths, tracking, the API client, the synthetic
+# source) needs only the Python standard library. Install these only on the
+# device that actually reads camera frames:
+#
+#     pip install -r agent/requirements.txt
+#
+opencv-python-headless>=4.8
+numpy>=1.24

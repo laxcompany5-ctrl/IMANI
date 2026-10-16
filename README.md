@@ -36,6 +36,12 @@ A security-analyst web app built in small, working increments ("bits").
 > subject is attached to their existing record (never duplicated), an unknown
 > one is auto-enrolled, and each person's *identity profile* learns from every
 > visit so recognition improves over time.
+>
+> **Bit 9 — Capture agent:** a standalone, camera-side program that reads a
+> video source (webcam, file, or RTSP/HTTP stream), tracks each person, extracts
+> their traits and posts one capture per person to the ingestion API. Since
+> IMANI does no computer vision itself, this is the piece that turns what a
+> camera sees into captures the console can act on.
 
 ---
 
@@ -308,6 +314,37 @@ different person, **enrol** it as a brand-new person, or **delete** it. Every
 decision is written to the audit trail, so each person's record carries a
 history of when and where the cameras recognised them.
 
+### The capture agent (camera side)
+
+`/ingest/capture` is the server half of the pipeline; the **capture agent** in
+[`agent/`](agent/README.md) is the camera half. It is a small, standalone
+program that runs on the device next to the recorder, reads a video source
+(file, webcam, or RTSP/HTTP stream), tracks each person, turns the track into
+traits, and posts one capture per person.
+
+It imports nothing from the server package, so it can be copied onto an edge
+box on its own. The video path needs OpenCV (`agent/requirements.txt`); the
+trait maths, tracker, API client and a synthetic source need only the standard
+library.
+
+```bash
+# Prove the whole loop with no camera and no OpenCV:
+python -m agent --source synthetic --dry-run --camera gate-3
+
+# Against a real camera, using the server's shared key:
+python -m agent \
+  --source "rtsp://camera.local/stream" \
+  --endpoint "https://your-domain/ingest/capture" \
+  --api-key "$IMANI_INGEST_API_KEY" \
+  --camera "gate-3" --camera-height 250 --principal-y 360
+```
+
+A person is only reported once they have been seen for `--confirm-hits` frames,
+and then at most once per `--min-interval` seconds — a person lingering in shot
+is not reported dozens of times a second. See **[`agent/README.md`](agent/README.md)**
+for the trait estimates, the height-calibration model, and how to drop in your
+own detector or face-embedding model.
+
 ---
 
 ## 4. Security measures
@@ -366,6 +403,15 @@ imani-web/
 │   │   └── dashboard.py    # /dashboard
 │   ├── templates/          # Jinja2 pages
 │   └── static/             # CSS + JS (purple theme, report.css for print)
+├── agent/                  # standalone camera-side capture agent (Bit 9)
+│   ├── README.md           # running it, calibration, replacing the models
+│   ├── requirements.txt    # OpenCV/numpy — only for the real-video path
+│   ├── traits.py           # box/trait maths (pure, no OpenCV)
+│   ├── tracker.py          # IoU tracker: one capture per person, not per frame
+│   ├── vision.py           # OpenCV detection + (weak) face descriptor, lazy import
+│   ├── client.py           # stdlib HTTP delivery with retry/backoff
+│   ├── agent.py            # orchestration + CLI (+ synthetic source)
+│   └── __main__.py         # `python -m agent`
 └── tests/
     ├── conftest.py
     ├── test_auth.py        # sign-up, approval gate, lockout, RBAC
@@ -374,7 +420,8 @@ imani-web/
     ├── test_individuals.py # register CRUD + search + access control
     ├── test_matching.py    # scoring, bands, /match flow
     ├── test_reports.py     # reports overview, CSV exports, case reports, activity log
-    └── test_capture.py     # CCTV ingestion, re-identification, profiles, sightings console
+    ├── test_capture.py     # CCTV ingestion, re-identification, profiles, sightings console
+    └── test_agent.py       # capture agent: traits, tracking, payloads, delivery
 ```
 
 ---
@@ -413,4 +460,5 @@ is in `deploy/DEPLOY.md`.
 - **Bit 6 (done)** — Matching engine: weighted trait scoring, confidence bands, saved runs.
 - **Bit 7 (done)** — Reporting & exports: reports console, printable case/profile reports, CSV exports, activity log.
 - **Bit 8 (done)** — CCTV capture & re-identification: ingestion API, sightings, auto-enrolment, learning identity profiles.
-- **Bit 9+** — Deployment hardening and next increments.
+- **Bit 9 (done)** — Capture agent: standalone camera-side program (OpenCV detection, IoU tracking, trait extraction, resilient delivery) that feeds `/ingest/capture`.
+- **Bit 10+** — Deployment hardening and next increments.
