@@ -50,6 +50,7 @@ def reset_db_command() -> None:
     """Drop every table and recreate an empty database (development only)."""
     db = get_db()
     db.executescript(
+        "DROP TABLE IF EXISTS identity_profiles; DROP TABLE IF EXISTS sightings; "
         "DROP TABLE IF EXISTS match_results; DROP TABLE IF EXISTS match_runs; "
         "DROP TABLE IF EXISTS audit_log; DROP TABLE IF EXISTS individuals; "
         "DROP TABLE IF EXISTS users;"
@@ -109,6 +110,8 @@ def migrate_command() -> None:
     #    before step 2; a fresh table already includes them).
     individual_additions = (
         ("face_template", "ALTER TABLE individuals ADD COLUMN face_template TEXT"),
+        ("source", "ALTER TABLE individuals ADD COLUMN source TEXT NOT NULL "
+                   "DEFAULT 'manual'"),
     )
     if _table_columns(db, "individuals"):
         for name, ddl in individual_additions:

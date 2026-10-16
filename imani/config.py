@@ -46,6 +46,9 @@ class Config:
 
     # Toggle the CSRF guard (tests disable it).
     CSRF_ENABLED = True
+    # Endpoints exempt from the session CSRF check — machine-to-machine APIs
+    # that authenticate with a shared key in a header instead of the session.
+    CSRF_EXEMPT_ENDPOINTS = {"ingest.capture"}
 
     # Brute-force protection.
     MAX_FAILED_ATTEMPTS = 5
@@ -56,6 +59,17 @@ class Config:
     GOOGLE_CLIENT_SECRET = os.environ.get("IMANI_GOOGLE_CLIENT_SECRET", "")
     GOOGLE_REDIRECT_URI = os.environ.get("IMANI_GOOGLE_REDIRECT_URI", "")
     GOOGLE_ALLOWED_DOMAINS = os.environ.get("IMANI_GOOGLE_ALLOWED_DOMAINS", "")
+
+    # --- CCTV capture ingestion (Bit 8) -------------------------------
+    # Shared secret the capture devices send in the X-API-Key header. When
+    # unset the ingestion API is disabled (every request is rejected).
+    INGEST_API_KEY = os.environ.get("IMANI_INGEST_API_KEY", "")
+    # A capture scoring at or above this is attached to a known person outright.
+    CAPTURE_ACCEPT_SCORE = float(os.environ.get("IMANI_CAPTURE_ACCEPT_SCORE", "85"))
+    # Between review and accept it is attached but flagged for confirmation.
+    CAPTURE_REVIEW_SCORE = float(os.environ.get("IMANI_CAPTURE_REVIEW_SCORE", "70"))
+    # How many face templates to keep in each identity profile gallery.
+    PROFILE_MAX_FACE_TEMPLATES = int(os.environ.get("IMANI_PROFILE_MAX_FACES", "5"))
 
     # --- Database -----------------------------------------------------
     DATABASE = os.environ.get(

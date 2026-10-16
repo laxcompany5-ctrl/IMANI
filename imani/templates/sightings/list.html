@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}Sightings{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Sightings</h1>
+    <p class="muted">
+      {% if individual %}
+      Captures attributed to <strong>{{ individual.full_name }}</strong>.
+      {% else %}
+      Every person the cameras detected, newest first.
+      {% endif %}
+    </p>
+  </div>
+  {% if current_user.role in ('analyst', 'admin') %}
+  <div class="head-actions">
+    <a class="btn btn-primary" href="{{ url_for('sightings.simulate') }}">Simulate capture</a>
+    <a class="btn btn-ghost" href="{{ url_for('sightings.review') }}">Review queue{% if review_count %} ({{ review_count }}){% endif %}</a>
+  </div>
+  {% endif %}
+</div>
+
+<form class="card searchbar" method="get" action="{{ url_for('sightings.index') }}">
+  {% if individual_id %}<input type="hidden" name="individual" value="{{ individual_id }}">{% endif %}
+  <div class="search-input">
+    <input type="search" disabled value="{{ individual.full_name if individual else 'All people' }}"
+           placeholder="Filter by person (open a person to scope)">
+  </div>
+  <select name="camera" aria-label="Camera">
+    <option value="">All cameras</option>
+    {% for option in cameras %}
+    <option value="{{ option }}" {{ 'selected' if camera == option }}>{{ option }}</option>
+    {% endfor %}
+  </select>
+  <select name="status" aria-label="Decision">
+    <option value="">All decisions</option>
+    {% for option in statuses %}
+    <option value="{{ option }}" {{ 'selected' if status == option }}>{{ option }}</option>
+    {% endfor %}
+  </select>
+  <button class="btn btn-primary" type="submit">Filter</button>
+  {% if camera or status or individual_id %}
+  <a class="btn btn-ghost" href="{{ url_for('sightings.index') }}">Clear</a>
+  {% endif %}
+</form>
+
+<p class="muted small result-count">
+  {{ total }} capture{{ '' if total == 1 else 's' }}
+</p>
+
+{% if sightings %}
+<div class="card table-wrap">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>When</th><th>Reference</th><th>Camera</th><th>Person</th>
+        <th>Decision</th><th>Score</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in sightings %}
+      <tr>
+        <td class="muted small">{{ item.captured_at }}</td>
+        <td><a href="{{ url_for('sightings.detail', sighting_id=item.id) }}"><code>{{ item.reference }}</code></a></td>
+        <td class="muted small">{{ item.camera or '—' }}</td>
+        <td>
+          {% if item.individual_id %}
+          <a href="{{ url_for('individuals.detail', individual_id=item.individual_id) }}">{{ item.individual_name }}</a>
+          {% else %}<span class="muted">Unresolved</span>{% endif %}
+        </td>
+        <td><span class="pill pill-{{ 'active' if item.status == 'identified' else ('pending' if item.status == 'review' else 'disabled') }}">{{ item.status }}</span></td>
+        <td class="muted small">{{ item.score if item.score is not none else '—' }}</td>
+        <td><a class="btn btn-small" href="{{ url_for('sightings.detail', sighting_id=item.id) }}">View</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if pages > 1 %}
+<nav class="pagination">
+  {% if page > 1 %}
+  <a class="btn btn-small" href="{{ url_for('sightings.index', page=page-1, camera=camera, status=status, individual=individual_id) }}">&larr; Previous</a>
+  {% endif %}
+  <span class="muted small">Page {{ page }} of {{ pages }}</span>
+  {% if page < pages %}
+  <a class="btn btn-small" href="{{ url_for('sightings.index', page=page+1, camera=camera, status=status, individual=individual_id) }}">Next &rarr;</a>
+  {% endif %}
+</nav>
+{% endif %}
+
+{% else %}
+<div class="card empty">
+  <p class="empty-mark">&#9673;</p>
+  <h2>No captures yet</h2>
+  <p class="muted">
+    {% if camera or status or individual_id %}Nothing matches these filters.
+    {% else %}Once a camera posts a capture it will appear here.{% endif %}
+  </p>
+</div>
+{% endif %}
+{% endblock %}

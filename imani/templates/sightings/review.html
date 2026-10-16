@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Review queue{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Review queue</h1>
+    <p class="muted">Tentative matches the engine wants a human to confirm.</p>
+  </div>
+  <div class="head-actions">
+    <a class="btn btn-ghost" href="{{ url_for('sightings.index') }}">All sightings</a>
+  </div>
+</div>
+
+{% if sightings %}
+<div class="result-list">
+  {% for item in sightings %}
+  <article class="card result-card">
+    <div class="result-score">
+      <span class="value">{{ item.score|int if item.score is not none else '—' }}</span>
+      <span class="band band-{{ item.band|lower|replace(' ', '-') if item.band else 'very-low' }}">{{ item.band or '—' }}</span>
+    </div>
+    <div>
+      <h3>
+        <a href="{{ url_for('sightings.detail', sighting_id=item.id) }}">{{ item.reference }}</a>
+        <span class="muted small">{{ item.captured_at }} &middot; {{ item.camera or 'unknown camera' }}</span>
+      </h3>
+      <p class="muted small">
+        Best match:
+        {% if item.individual_id %}
+        <a href="{{ url_for('individuals.detail', individual_id=item.individual_id) }}">{{ item.individual_name }}</a>
+        {% else %}—{% endif %}
+      </p>
+      <div class="row-actions">
+        <a class="btn btn-small" href="{{ url_for('sightings.detail', sighting_id=item.id) }}">Review</a>
+        <form method="post" action="{{ url_for('sightings.confirm', sighting_id=item.id) }}">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <button class="btn btn-small btn-primary" type="submit">Confirm</button>
+        </form>
+      </div>
+    </div>
+  </article>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card empty">
+  <p class="empty-mark">&#10003;</p>
+  <h2>Nothing to review</h2>
+  <p class="muted">Every capture has been resolved.</p>
+</div>
+{% endif %}
+{% endblock %}

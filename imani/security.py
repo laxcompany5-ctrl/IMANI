@@ -29,6 +29,10 @@ def validate_csrf() -> None:
         return
     if request.method in SAFE_METHODS:
         return
+    # Header-authenticated machine APIs (e.g. /ingest/capture) are configured
+    # to bypass the session token entirely.
+    if request.endpoint in current_app.config.get("CSRF_EXEMPT_ENDPOINTS", ()):
+        return
 
     expected = session.get(CSRF_SESSION_KEY)
     provided = request.form.get("_csrf_token") or request.headers.get("X-CSRF-Token")

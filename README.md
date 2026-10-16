@@ -29,6 +29,13 @@ A security-analyst web app built in small, working increments ("bits").
 > activity, printable case reports for a match run or an individual record
 > (print / save-as-PDF), CSV exports of the register, match results and the
 > activity log, and an admin activity-log viewer with filtering.
+>
+> **Bit 8 — CCTV capture & re-identification:** an ingestion API a camera
+> deployment posts to. Every detected person is stored as a *sighting* with its
+> traits and timestamp, then re-identified against the register: a returning
+> subject is attached to their existing record (never duplicated), an unknown
+> one is auto-enrolled, and each person's *identity profile* learns from every
+> visit so recognition improves over time.
 
 ---
 
@@ -236,6 +243,73 @@ module so commas, quotes and newlines are escaped correctly.
 
 ---
 
+## 3e. CCTV capture & re-identification
+
+IMANI does not itself run computer vision. In a real deployment an edge box or
+CV worker beside the recorder does the detection and hands IMANI a person's
+extracted traits as JSON. IMANI owns the parts that matter for an investigation:
+**storage, matching, and the identity decision.**
+
+### Ingesting a capture
+
+A device `POST`s to `/ingest/capture`, authenticating with a shared key in the
+`X-API-Key` header (the endpoint is exempt from session CSRF). The API is
+**off** until `IMANI_INGEST_API_KEY` is set.
+
+```bash
+curl -X POST https://your-domain/ingest/capture \
+  -H 'Content-Type: application/json' \
+  -H 'X-API-Key: <the shared key>' \
+  -d '{"camera": "gate-3", "captured_at": "2026-10-14 07:31:02",
+       "height_cm": 181, "build": "athletic", "posture": "upright",
+       "gait": "brisk", "face_template": [0.12, 0.87, -0.4],
+       "image_ref": "frames/2026-10-14/gate-3/004312.jpg"}'
+```
+
+It replies with the decision:
+
+```json
+{ "reference": "SG-00042", "status": "identified", "score": 96.4,
+  "band": "HIGH", "created_person": false,
+  "individual": {"id": 7, "reference": "IM-00007", "name": "John Kamau"},
+  "candidates": [ ... ] }
+```
+
+### What happens to each capture
+
+1. **It is always stored.** Traits, camera and timestamp are written to the
+   `sightings` table first — nothing a camera saw is discarded, even when the
+   person is a complete stranger.
+2. **It is re-identified.** The capture is scored against every active person's
+   *identity profile* using the same weighted engine as the manual matcher
+   (gait 25% · height 25% · face 20% · build 15% · posture 15%).
+3. **It is attached or enrolled.** At or above `IMANI_CAPTURE_ACCEPT_SCORE`
+   (default 85) the sighting is attached to that person. Between the *review*
+   and *accept* scores it is attached but flagged for an analyst. Below both, a
+   new person is auto-enrolled (`source = 'cctv'`, named `Unknown (SG-…)`) so
+   their next visit is recognised instead of duplicated.
+4. **The profile learns.** Each attached sighting is folded into the person's
+   `identity_profiles` row: height converges on a running mean, build / posture
+   / gait keep vote counts (matching uses the mode), and a small gallery of
+   near-orthogonal face templates is kept for the cosine matcher.
+
+### The sightings console
+
+| Endpoint | Who | What |
+|----------|-----|------|
+| `/sightings` | any signed-in user | The capture feed — filter by camera or decision, newest first |
+| `/sightings/<id>` | any signed-in user | One capture: decision, per-trait breakdown, the person it was attached to |
+| `/sightings/review` | analyst+ | Tentative matches awaiting confirmation |
+| `/sightings/simulate` | analyst+ | Post a capture by hand (stand-in for a camera during setup) |
+| `/ingest/capture` | API key | The machine-to-machine ingestion endpoint |
+
+From a capture page an analyst can **confirm** a match, **re-assign** it to a
+different person, **enrol** it as a brand-new person, or **delete** it. Every
+decision is written to the audit trail, so each person's record carries a
+history of when and where the cameras recognised them.
+
+---
+
 ## 4. Security measures
 
 | Area | Implementation |
@@ -279,11 +353,14 @@ imani-web/
 │   ├── auth.py             # authenticate, sessions, roles, lockout
 │   ├── oauth.py            # Google OAuth 2.0 / OIDC (stdlib only)
 │   ├── reports.py          # CSV + printable-report helpers
+│   ├── capture.py          # CCTV ingestion + re-identification (Bit 8)
 │   ├── routes/
 │   │   ├── home.py         # /  (public landing page)
 │   │   ├── auth_routes.py  # login, signup, logout, /auth/google[/callback]
 │   │   ├── individuals.py  # /individuals  (search / insert / update / delete)
 │   │   ├── match.py        # /match  (run a probe, history, results)
+│   │   ├── sightings.py    # /sightings  (capture feed, review, actions)
+│   │   ├── ingest.py       # /ingest/capture  (device API, X-API-Key)
 │   │   ├── reports.py      # /reports, /activity, /activity/export.csv
 │   │   ├── admin.py        # /admin/approvals, /admin/users
 │   │   └── dashboard.py    # /dashboard
@@ -296,7 +373,8 @@ imani-web/
     ├── test_home.py        # public landing page
     ├── test_individuals.py # register CRUD + search + access control
     ├── test_matching.py    # scoring, bands, /match flow
-    └── test_reports.py     # reports overview, CSV exports, case reports, activity log
+    ├── test_reports.py     # reports overview, CSV exports, case reports, activity log
+    └── test_capture.py     # CCTV ingestion, re-identification, profiles, sightings console
 ```
 
 ---
@@ -334,4 +412,5 @@ is in `deploy/DEPLOY.md`.
 - **Bit 5 (done)** — The individual register (search / insert / update / delete).
 - **Bit 6 (done)** — Matching engine: weighted trait scoring, confidence bands, saved runs.
 - **Bit 7 (done)** — Reporting & exports: reports console, printable case/profile reports, CSV exports, activity log.
-- **Bit 8+** — Deployment hardening and next increments.
+- **Bit 8 (done)** — CCTV capture & re-identification: ingestion API, sightings, auto-enrolment, learning identity profiles.
+- **Bit 9+** — Deployment hardening and next increments.

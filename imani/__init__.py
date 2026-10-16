@@ -49,14 +49,18 @@ def create_app(config_object: type | None = None) -> Flask:
         dashboard,
         home,
         individuals,
+        ingest,
         match,
         reports,
+        sightings,
     )
 
     app.register_blueprint(home.bp)
     app.register_blueprint(auth_routes.bp)
     app.register_blueprint(individuals.bp)
     app.register_blueprint(match.bp)
+    app.register_blueprint(sightings.bp)
+    app.register_blueprint(ingest.bp)
     app.register_blueprint(reports.bp)
     app.register_blueprint(admin.bp)
     app.register_blueprint(dashboard.bp)
@@ -72,11 +76,18 @@ def create_app(config_object: type | None = None) -> Flask:
             from .models import UserRepository
 
             pending = UserRepository.count_by_status().get("pending", 0)
+
+        review_count = 0
+        if user is not None and user["role"] in ("analyst", "admin"):
+            from .models import SightingRepository
+
+            review_count = SightingRepository.review_count()
         return {
             "app_name": app.config["APP_NAME"],
             "app_tagline": app.config["APP_TAGLINE"],
             "current_user": user,
             "pending_count": pending,
+            "review_count": review_count,
             "google_enabled": oauth.is_configured(app.config),
         }
 

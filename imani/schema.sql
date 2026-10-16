@@ -87,6 +87,11 @@ CREATE TABLE IF NOT EXISTS individuals (
     status         TEXT    NOT NULL DEFAULT 'active'
                    CHECK (status IN ('active', 'archived')),
 
+    -- How the record entered the register: added by a person ('manual') or
+    -- auto-enrolled from a CCTV capture ('cctv').
+    source         TEXT    NOT NULL DEFAULT 'manual'
+                   CHECK (source IN ('manual', 'cctv')),
+
     -- Provenance -----------------------------------------------------
     created_at     TEXT    NOT NULL DEFAULT (datetime('now')),
     created_by     TEXT,
@@ -137,3 +142,59 @@ CREATE TABLE IF NOT EXISTS match_results (
 
 CREATE INDEX IF NOT EXISTS idx_match_results_run ON match_results(run_id);
 CREATE INDEX IF NOT EXISTS idx_match_results_rank ON match_results(run_id, score DESC);
+
+-- Bit 8 — CCTV capture ingestion & re-identification ------------------------
+-- Every person a camera detects becomes a *sighting*: the traits extracted by
+-- the edge device plus the time and camera, whether or not we know who it is.
+CREATE TABLE IF NOT EXISTS sightings (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    reference      TEXT    UNIQUE,           -- "SG-00001", filled after insert
+    -- The person this capture was attached to. NULL if it was never resolved.
+    individual_id  INTEGER REFERENCES individuals(id) ON DELETE SET NULL,
+    camera         TEXT,
+    captured_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+    received_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+
+    -- How the engine resolved this capture:
+    --   identified -> confidently attached to a known person
+    --   review     -> attached tentatively; an analyst should confirm
+    --   new        -> no match; a new person was auto-enrolled for it
+    status         TEXT    NOT NULL DEFAULT 'new'
+                   CHECK (status IN ('identified', 'review', 'new')),
+    score          REAL,                      -- similarity to individual_id
+    band           TEXT,
+    breakdown      TEXT,                      -- per-trait similarities (JSON)
+
+    -- A snapshot of the extracted traits for this capture.
+    height_cm      INTEGER,
+    build          TEXT,
+    posture        TEXT,
+    gait           TEXT,
+    face_template  TEXT,
+    image_ref      TEXT,                      -- path/URI of the stored frame
+    notes          TEXT,
+
+    resolved       INTEGER NOT NULL DEFAULT 0, -- an analyst has reviewed it
+    created_at     TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_sightings_created ON sightings(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sightings_individual ON sightings(individual_id);
+CREATE INDEX IF NOT EXISTS idx_sightings_status ON sightings(status);
+
+-- The rolling "identity profile" the engine learns for each person from their
+-- sightings. Height converges to a mean, categorical traits to a mode, and
+-- face keeps a small gallery of templates. Matching uses it in preference to
+-- the hand-typed register values, so recognition improves with every visit.
+CREATE TABLE IF NOT EXISTS identity_profiles (
+    individual_id  INTEGER PRIMARY KEY
+                   REFERENCES individuals(id) ON DELETE CASCADE,
+    height_mean    REAL,
+    height_count   INTEGER NOT NULL DEFAULT 0,
+    tallies        TEXT,                      -- JSON: build/posture/gait counts
+    face_templates TEXT,                      -- JSON list of templates
+    sample_count   INTEGER NOT NULL DEFAULT 0,
+    first_seen     TEXT,
+    last_seen      TEXT,
+    updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
+);

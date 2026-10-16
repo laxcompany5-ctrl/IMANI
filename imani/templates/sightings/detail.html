@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% block title %}Capture {{ sighting.reference }}{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>
+      Capture <code>{{ sighting.reference }}</code>
+      <span class="pill pill-{{ 'active' if sighting.status == 'identified' else ('pending' if sighting.status == 'review' else 'disabled') }}">{{ sighting.status }}</span>
+      {% if sighting.resolved %}<span class="pill pill-active">reviewed</span>{% endif %}
+    </h1>
+    <p class="muted">
+      {{ sighting.captured_at }}
+      &middot; {{ sighting.camera or 'unknown camera' }}
+    </p>
+  </div>
+  <div class="head-actions">
+    <a class="btn btn-ghost" href="{{ url_for('sightings.index') }}">All sightings</a>
+    {% if current_user.role in ('analyst', 'admin') %}
+    <a class="btn btn-ghost" href="{{ url_for('sightings.review') }}">Review queue</a>
+    {% endif %}
+  </div>
+</div>
+
+<div class="detail-grid">
+  <section class="card">
+    <h2>Decision</h2>
+    {% if sighting.individual_id %}
+    <p class="muted small">Matched to</p>
+    <p>
+      <a href="{{ url_for('individuals.detail', individual_id=sighting.individual_id) }}">
+        <strong>{{ person.full_name if person else sighting.reference }}</strong>
+      </a>
+      {% if person %}<code>{{ person.reference }}</code>{% endif %}
+      {% if person and person.source == 'cctv' %}<span class="pill pill-pending">auto-enrolled</span>{% endif %}
+    </p>
+    {% else %}
+    <p class="muted">Not attributed to anyone.</p>
+    {% endif %}
+
+    {% if sighting.score is not none %}
+    <div class="result-score">
+      <span class="value">{{ sighting.score }}</span>
+      <span class="band band-{{ sighting.band|lower|replace(' ', '-') }}">{{ sighting.band }}</span>
+    </div>
+    {% if breakdown %}
+    <div class="breakdown">
+      {% for trait in traits %}
+      {% if trait in breakdown %}
+      <div class="breakdown-row">
+        <span>{{ labels[trait] }}</span>
+        <span class="bar"><span style="width: {{ (breakdown[trait].similarity * 100)|round(1) }}%"></span></span>
+        <span>{{ (breakdown[trait].similarity * 100)|round(0)|int }}%</span>
+      </div>
+      {% endif %}
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <h2>Captured traits</h2>
+    <div class="trait-chips">
+      <span class="chip">Height <strong>{{ sighting.height_cm or '—' }}{% if sighting.height_cm %} cm{% endif %}</strong></span>
+      <span class="chip">Build <strong>{{ sighting.build or '—' }}</strong></span>
+      <span class="chip">Posture <strong>{{ sighting.posture or '—' }}</strong></span>
+      <span class="chip">Gait <strong>{{ sighting.gait or '—' }}</strong></span>
+      <span class="chip">Face <strong>{{ 'template supplied' if sighting.face_template else '—' }}</strong></span>
+    </div>
+    {% if sighting.image_ref %}
+    <p class="muted small">Frame: <code>{{ sighting.image_ref }}</code></p>
+    {% endif %}
+    {% if sighting.notes %}<p class="muted small">Notes: {{ sighting.notes }}</p>{% endif %}
+  </section>
+</div>
+
+{% if profile %}
+<section class="card">
+  <h2>Learned profile</h2>
+  <p class="muted small">
+    Built from {{ profile.sample_count }} observation{{ '' if profile.sample_count == 1 else 's' }}
+    &middot; first seen {{ profile.first_seen or '—' }}
+    &middot; last seen {{ profile.last_seen or '—' }}
+  </p>
+</section>
+{% endif %}
+
+{% if person and person.id %}
+<section class="card">
+  <h2>Other captures of this person</h2>
+  <p class="muted small">
+    <a href="{{ url_for('sightings.index', individual=person.id) }}">Open the full capture history</a>
+    for {{ person.full_name }}.
+  </p>
+</section>
+{% endif %}
+
+{% if current_user.role in ('analyst', 'admin') %}
+<section class="card">
+  <h2>Analyst actions</h2>
+
+  {% if sighting.individual_id and not sighting.resolved %}
+  <form method="post" action="{{ url_for('sightings.confirm', sighting_id=sighting.id) }}" class="inline-form">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <button class="btn btn-primary" type="submit">Confirm this match</button>
+  </form>
+  {% endif %}
+
+  <form method="post" action="{{ url_for('sightings.reassign', sighting_id=sighting.id) }}" class="inline-form">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <label for="individual_id">Re-assign to</label>
+    <select id="individual_id" name="individual_id">
+      <option value="">Choose a person…</option>
+      {% for candidate in people %}
+      {% if not person or candidate.id != person.id %}
+      <option value="{{ candidate.id }}">{{ candidate.full_name }} ({{ candidate.reference }})</option>
+      {% endif %}
+      {% endfor %}
+    </select>
+    <button class="btn" type="submit">Re-assign</button>
+  </form>
+
+  <form method="post" action="{{ url_for('sightings.enroll', sighting_id=sighting.id) }}" class="inline-form">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <button class="btn btn-ghost" type="submit">Enrol as a new person</button>
+  </form>
+</section>
+
+<form id="delete-sighting" method="post"
+      action="{{ url_for('sightings.delete', sighting_id=sighting.id) }}"
+      class="danger-zone card">
+  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+  <div>
+    <h2>Delete capture</h2>
+    <p class="muted small">Removes this capture from the record. This cannot be undone.</p>
+  </div>
+  <button class="btn btn-danger" type="submit">Delete capture</button>
+</form>
+{% endif %}
+{% endblock %}

@@ -33,6 +33,16 @@
     <span class="stat-value">{{ counts.get('pending', 0) }}</span>
     <span class="stat-label">Pending approvals</span>
   </div>
+  <div class="card stat">
+    <a class="stat-value" href="{{ url_for('sightings.index') }}">{{ sightings }}</a>
+    <span class="stat-label">Camera captures</span>
+  </div>
+  {% if current_user.role in ('analyst', 'admin') %}
+  <div class="card stat">
+    <a class="stat-value" href="{{ url_for('sightings.review') }}">{{ sighting_review }}</a>
+    <span class="stat-label">Captures to review</span>
+  </div>
+  {% endif %}
 </div>
 
 <div class="card">
@@ -44,7 +54,22 @@
     {% if current_user.role in ('analyst', 'admin') %}
     <a class="btn" href="{{ url_for('individuals.create') }}">Register individual</a>
     <a class="btn" href="{{ url_for('match.run') }}">Run a match</a>
+    <a class="btn" href="{{ url_for('sightings.index') }}">Open captures</a>
     <a class="btn" href="{{ url_for('reports.overview') }}">Reports &amp; exports</a>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <h2>CCTV capture</h2>
+  <p class="muted">Every person a camera detects is stored with its traits and
+    timestamp, then re-identified against the register automatically — a returning
+    subject is attached to their existing record instead of creating a new one.</p>
+  <div class="form-actions">
+    <a class="btn btn-primary" href="{{ url_for('sightings.index') }}">Open sightings</a>
+    {% if current_user.role in ('analyst', 'admin') %}
+    <a class="btn" href="{{ url_for('sightings.review') }}">Review queue</a>
+    <a class="btn" href="{{ url_for('sightings.simulate') }}">Simulate a capture</a>
     {% endif %}
   </div>
 </div>
