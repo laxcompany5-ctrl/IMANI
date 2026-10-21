@@ -198,3 +198,30 @@ CREATE TABLE IF NOT EXISTS identity_profiles (
     last_seen      TEXT,
     updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- CCTV cameras connected to IMANI (Bit 10). A camera is either a real stream
+-- (rtsp/http/file/device, read with OpenCV) or a "demo" source that replays a
+-- synthetic walk, so the capture pipeline can be exercised without hardware.
+CREATE TABLE IF NOT EXISTS cameras (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    name            TEXT    NOT NULL UNIQUE,
+    location        TEXT,
+    source_type     TEXT    NOT NULL DEFAULT 'rtsp'
+                    CHECK (source_type IN ('rtsp','http','file','device','demo')),
+    source_url      TEXT    NOT NULL,
+    enabled         INTEGER NOT NULL DEFAULT 1,
+
+    -- What the monitor is doing right now. "unavailable" means the camera is
+    -- configured but this server cannot read it (OpenCV missing, etc.).
+    status          TEXT    NOT NULL DEFAULT 'stopped'
+                    CHECK (status IN ('stopped','connecting','live','error','unavailable')),
+
+    last_frame_at   TEXT,
+    last_capture_at TEXT,
+    last_error      TEXT,
+    created_by      TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_cameras_status ON cameras(status);

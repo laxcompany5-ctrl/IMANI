@@ -42,6 +42,12 @@ A security-analyst web app built in small, working increments ("bits").
 > their traits and posts one capture per person to the ingestion API. Since
 > IMANI does no computer vision itself, this is the piece that turns what a
 > camera sees into captures the console can act on.
+>
+> **Bit 10 — CCTV connection & surveillance:** connect cameras from inside the
+> app. Register a stream (RTSP/HTTP/file/webcam, or a synthetic *demo* source),
+> press **Start**, and the server reads it itself — detecting people, extracting
+> traits and storing captures through the same engine the API uses, with a live
+> view and per-camera status.
 
 ---
 
@@ -345,6 +351,35 @@ is not reported dozens of times a second. See **[`agent/README.md`](agent/README
 for the trait estimates, the height-calibration model, and how to drop in your
 own detector or face-embedding model.
 
+### Connecting CCTV from inside the app
+
+The agent above runs on the camera box. If you'd rather the **server** hold the
+stream itself, use the cameras console (`/cameras`): register a source, press
+**Start**, and a monitor thread reads it, detects each person, extracts their
+traits and calls the very same ingestion engine the API uses — so a capture
+looks identical no matter which route it took to reach IMANI.
+
+| Endpoint | Who | What |
+|----------|-----|------|
+| `/cameras` | any signed-in user | Every connected camera with its live status |
+| `/cameras/new`, `/cameras/<id>/edit` | analyst+ | Register or change a camera |
+| `/cameras/<id>/start`, `/stop` | analyst+ | Begin/stop monitoring |
+| `/cameras/<id>/stream` | any signed-in user | MJPEG live view of a real camera |
+| `/cameras/<id>/snapshot.jpg` | any signed-in user | A single frame |
+
+Two kinds of source:
+
+- **`demo`** — replays a synthetic walk. No hardware and no OpenCV needed, so
+  the whole pipeline can be exercised on any machine.
+- **`rtsp` / `http` / `file` / `device`** — a real stream, read with OpenCV
+  (`pip install -r agent/requirements.txt`).
+
+The trait maths and the tracker are shared with `agent/`, not duplicated, so
+recognition is consistent everywhere. Each camera runs in its own daemon thread
+and updates its own row (`connecting` → `live` → `stopped`), so a dead stream
+never takes the app down. Credentials in a stream URL are stored, but treat
+`cameras.source_url` as sensitive — it may contain `rtsp://user:password@…`.
+
 ---
 
 ## 4. Security measures
@@ -391,11 +426,13 @@ imani-web/
 │   ├── oauth.py            # Google OAuth 2.0 / OIDC (stdlib only)
 │   ├── reports.py          # CSV + printable-report helpers
 │   ├── capture.py          # CCTV ingestion + re-identification (Bit 8)
+│   ├── surveillance.py     # monitor threads: read cameras in-app (Bit 10)
 │   ├── routes/
 │   │   ├── home.py         # /  (public landing page)
 │   │   ├── auth_routes.py  # login, signup, logout, /auth/google[/callback]
 │   │   ├── individuals.py  # /individuals  (search / insert / update / delete)
 │   │   ├── match.py        # /match  (run a probe, history, results)
+│   │   ├── cameras.py      # /cameras  (connect CCTV, monitor, live view)
 │   │   ├── sightings.py    # /sightings  (capture feed, review, actions)
 │   │   ├── ingest.py       # /ingest/capture  (device API, X-API-Key)
 │   │   ├── reports.py      # /reports, /activity, /activity/export.csv
@@ -421,7 +458,8 @@ imani-web/
     ├── test_matching.py    # scoring, bands, /match flow
     ├── test_reports.py     # reports overview, CSV exports, case reports, activity log
     ├── test_capture.py     # CCTV ingestion, re-identification, profiles, sightings console
-    └── test_agent.py       # capture agent: traits, tracking, payloads, delivery
+    ├── test_agent.py       # capture agent: traits, tracking, payloads, delivery
+    └── test_cameras.py     # camera registry, monitoring, live view, RBAC
 ```
 
 ---
@@ -461,4 +499,5 @@ is in `deploy/DEPLOY.md`.
 - **Bit 7 (done)** — Reporting & exports: reports console, printable case/profile reports, CSV exports, activity log.
 - **Bit 8 (done)** — CCTV capture & re-identification: ingestion API, sightings, auto-enrolment, learning identity profiles.
 - **Bit 9 (done)** — Capture agent: standalone camera-side program (OpenCV detection, IoU tracking, trait extraction, resilient delivery) that feeds `/ingest/capture`.
-- **Bit 10+** — Deployment hardening and next increments.
+- **Bit 10 (done)** — CCTV connection & surveillance: camera registry, in-app monitor threads, live MJPEG view, per-camera status.
+- **Bit 11+** — Deployment hardening and next increments.

@@ -103,3 +103,12 @@ class FrameAnalyzer:
         if total == 0:
             return None
         return [value / total for value in vector]
+
+
+def encode_jpeg(frame, quality: int = 80) -> bytes | None:
+    """Encode a frame as JPEG bytes for the live view."""
+    cv2 = _require_cv2()
+    ok, buffer = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), quality])
+    if not ok:
+        return None
+    return buffer.tobytes()

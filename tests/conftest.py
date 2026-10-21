@@ -20,6 +20,8 @@ def app(tmp_path):
         init_db()
         ensure_seed_admin("admin", "Imani@2026", email="admin@imani.local")
     yield application
+    # Camera monitors run in background threads against this app's database.
+    application.extensions["surveillance"].stop_all()
 
 
 @pytest.fixture

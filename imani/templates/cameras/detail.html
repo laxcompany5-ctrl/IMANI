@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}{{ camera.name }}{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>{{ camera.name }}</h1>
+    <p class="muted">
+      {{ source_labels.get(camera.source_type, camera.source_type) }}
+      {% if camera.location %} &middot; {{ camera.location }}{% endif %}
+      {% if camera.running and camera.live == 'live' %}<span class="pill pill-active">live</span>
+      {% elif camera.running and camera.live == 'connecting' %}<span class="pill pill-pending">connecting</span>
+      {% elif camera.live == 'unavailable' %}<span class="pill pill-unavailable">unavailable</span>
+      {% elif camera.live == 'error' %}<span class="pill pill-rejected">error</span>
+      {% else %}<span class="pill pill-disabled">stopped</span>{% endif %}
+    </p>
+  </div>
+  <div class="head-actions">
+    <a class="btn btn-ghost" href="{{ url_for('cameras.index') }}">All cameras</a>
+    <a class="btn btn-ghost" href="{{ url_for('sightings.index', camera=camera.name) }}">Captures</a>
+    {% if can_manage %}
+      {% if camera.running %}
+      <form class="inline-form" method="post" action="{{ url_for('cameras.stop', camera_id=camera.id) }}">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-danger" type="submit">Stop monitoring</button>
+      </form>
+      {% else %}
+      <form class="inline-form" method="post" action="{{ url_for('cameras.start', camera_id=camera.id) }}">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-primary" type="submit">Start monitoring</button>
+      </form>
+      {% endif %}
+      <a class="btn" href="{{ url_for('cameras.edit', camera_id=camera.id) }}">Edit</a>
+    {% endif %}
+  </div>
+</div>
+
+{% if camera.live_error and not camera.running %}
+<div class="card" style="border-color: var(--danger); margin-bottom: 1.2rem;">
+  <p>
+    <strong>{{ 'This camera cannot be monitored.' if camera.live == 'unavailable'
+               else 'Monitoring stopped with an error.' }}</strong>
+  </p>
+  <p class="muted">{{ camera.live_error }}</p>
+</div>
+{% endif %}
+
+<div class="detail-grid">
+  <section class="card">
+    <h2>Live view</h2>
+    {% if camera.has_live_view %}
+      <img class="live-frame" src="{{ url_for('cameras.stream', camera_id=camera.id) }}"
+           alt="Live view of {{ camera.name }}">
+      <p class="muted small" style="margin-top:.5rem;">
+        Frames update as the server reads them.
+      </p>
+    {% elif camera.source_type == 'demo' %}
+      <p class="muted">
+        This is a synthetic camera &mdash; it has no video to show. Watch the
+        <a href="{{ url_for('sightings.index', camera=camera.name) }}">captures</a>
+        instead.
+      </p>
+    {% elif camera.running %}
+      <p class="muted">Waiting for the first frame from the stream&hellip;</p>
+    {% else %}
+      <p class="muted">Start monitoring to see the live view.</p>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <h2>Source</h2>
+    <dl class="detail-list">
+      <div><dt>Type</dt><dd>{{ source_labels.get(camera.source_type, camera.source_type) }}</dd></div>
+      <div><dt>Stream</dt><dd><code>{{ camera.source_url }}</code></dd></div>
+      <div><dt>Location</dt><dd>{{ camera.location or '—' }}</dd></div>
+      <div><dt>Captures</dt><dd>{{ camera.capture_count }}</dd></div>
+      <div><dt>Last frame</dt><dd>{{ camera.last_frame_at or '—' }}</dd></div>
+      <div><dt>Last capture</dt><dd>{{ camera.last_capture_at or '—' }}</dd></div>
+      <div><dt>Added</dt><dd>{{ camera.created_at }} by {{ camera.created_by or '—' }}</dd></div>
+    </dl>
+  </section>
+</div>
+
+<section class="card" style="margin-top: 1.3rem;">
+  <h2>Recent captures</h2>
+  {% if camera.recent %}
+  <table class="data-table">
+    <thead>
+      <tr><th>When</th><th>Reference</th><th>Person</th><th>Decision</th><th>Score</th></tr>
+    </thead>
+    <tbody>
+      {% for item in camera.recent %}
+      <tr>
+        <td class="muted small">{{ item.captured_at }}</td>
+        <td><a href="{{ url_for('sightings.detail', sighting_id=item.id) }}"><code>{{ item.reference }}</code></a></td>
+        <td>
+          {% if item.individual_id %}
+          <a href="{{ url_for('individuals.detail', individual_id=item.individual_id) }}">{{ item.individual_name }}</a>
+          {% else %}<span class="muted">Unresolved</span>{% endif %}
+        </td>
+        <td><span class="pill pill-{{ 'active' if item.status == 'identified' else 'pending' }}">{{ item.status }}</span></td>
+        <td class="muted small">{{ '%.0f' % item.score if item.score is not none else '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="muted small" style="margin-top:.6rem;">
+    <a href="{{ url_for('sightings.index', camera=camera.name) }}">See all captures from this camera</a>
+  </p>
+  {% else %}
+  <p class="muted">No captures from this camera yet.</p>
+  {% endif %}
+</section>
+
+{% if can_manage %}
+<form id="delete-form" class="inline-form" method="post"
+      action="{{ url_for('cameras.delete', camera_id=camera.id) }}">
+  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+</form>
+<div class="card" style="margin-top: 1.3rem; border-color: var(--danger);">
+  <h2>Disconnect</h2>
+  <p class="muted">Remove this camera from IMANI. Captures it already made are kept.</p>
+  <button class="btn btn-danger" type="button" data-confirm-delete="#delete-form">Delete camera</button>
+</div>
+{% endif %}
+{% endblock %}

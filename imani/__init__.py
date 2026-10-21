@@ -5,7 +5,7 @@ import os
 
 from flask import Flask, render_template
 
-from . import auth, db
+from . import auth, db, surveillance
 from .config import DEFAULT_SECRET_KEY, ProductionConfig, Config
 from .security import init_csrf
 
@@ -41,11 +41,13 @@ def create_app(config_object: type | None = None) -> Flask:
 
     db.init_app(app)
     init_csrf(app)
+    surveillance.init_app(app)
 
     # --- Blueprints ---------------------------------------------------
     from .routes import (
         admin,
         auth_routes,
+        cameras,
         dashboard,
         home,
         individuals,
@@ -60,6 +62,7 @@ def create_app(config_object: type | None = None) -> Flask:
     app.register_blueprint(individuals.bp)
     app.register_blueprint(match.bp)
     app.register_blueprint(sightings.bp)
+    app.register_blueprint(cameras.bp)
     app.register_blueprint(ingest.bp)
     app.register_blueprint(reports.bp)
     app.register_blueprint(admin.bp)

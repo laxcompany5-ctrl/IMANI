@@ -588,3 +588,16 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 }
 .metric-list li:last-child { border-bottom: 0; padding-bottom: 0; }
 .metric-heading { margin-top: 1.2rem; }
+
+/* --- Cameras (Bit 10) ----------------------------------------------- */
+.live-frame {
+  width: 100%;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: #000;
+  display: block;
+}
+.camera-status-cell { white-space: nowrap; }
+.inline-form { display: inline; }
+.detail-grid .card h2 { margin-bottom: .8rem; }
+.pill-unavailable { background: rgba(165,150,199,.16); color: #cbbfe8; border: 1px dashed var(--border-2); }

@@ -822,3 +822,87 @@ def _gallery_add(gallery: list, template: str, max_faces: int, matching) -> bool
     if len(gallery) > max_faces:
         del gallery[0]
     return True
+
+
+class CameraRepository:
+    """The CCTV cameras IMANI is connected to (Bit 10)."""
+
+    @staticmethod
+    def create(values: dict, actor: str | None = None) -> int:
+        db = get_db()
+        cursor = db.execute(
+            "INSERT INTO cameras (name, location, source_type, source_url, "
+            "enabled, created_by) VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                (values.get("name") or "").strip(),
+                (values.get("location") or "").strip() or None,
+                values.get("source_type") or "rtsp",
+                (values.get("source_url") or "").strip(),
+                1 if values.get("enabled", True) else 0,
+                actor,
+            ),
+        )
+        db.commit()
+        return cursor.lastrowid
+
+    @staticmethod
+    def update(camera_id: int, values: dict) -> None:
+        db = get_db()
+        db.execute(
+            "UPDATE cameras SET name = ?, location = ?, source_type = ?, "
+            "source_url = ?, enabled = ?, updated_at = datetime('now') "
+            "WHERE id = ?",
+            (
+                (values.get("name") or "").strip(),
+                (values.get("location") or "").strip() or None,
+                values.get("source_type") or "rtsp",
+                (values.get("source_url") or "").strip(),
+                1 if values.get("enabled", True) else 0,
+                camera_id,
+            ),
+        )
+        db.commit()
+
+    @staticmethod
+    def get(camera_id: int):
+        return get_db().execute(
+            "SELECT * FROM cameras WHERE id = ?", (camera_id,)
+        ).fetchone()
+
+    @staticmethod
+    def get_by_name(name: str):
+        return get_db().execute(
+            "SELECT * FROM cameras WHERE name = ?", ((name or "").strip(),)
+        ).fetchone()
+
+    @staticmethod
+    def all():
+        return get_db().execute("SELECT * FROM cameras ORDER BY name").fetchall()
+
+    @staticmethod
+    def delete(camera_id: int) -> None:
+        db = get_db()
+        db.execute("DELETE FROM cameras WHERE id = ?", (camera_id,))
+        db.commit()
+
+    @staticmethod
+    def set_state(camera_id: int, status: str, error: str | None = None) -> None:
+        """Record a monitor status transition (the only status writer)."""
+        db = get_db()
+        db.execute(
+            "UPDATE cameras SET status = ?, last_error = ?, "
+            "updated_at = datetime('now') WHERE id = ?",
+            (status, error, camera_id),
+        )
+        db.commit()
+
+    @staticmethod
+    def update_seen(camera_id: int, last_frame_at, last_capture_at) -> None:
+        """Persist the monitor's in-memory last-seen values (throttled)."""
+        db = get_db()
+        db.execute(
+            "UPDATE cameras SET last_frame_at = ?, last_capture_at = ?, "
+            "updated_at = datetime('now') WHERE id = ?",
+            (last_frame_at, last_capture_at, camera_id),
+        )
+        db.commit()

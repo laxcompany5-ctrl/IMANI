@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% block title %}Cameras<script>
+// Poll the live camera status so the page shows monitoring without a reload.
+(function () {
+  var rows = document.querySelectorAll("[data-camera-row]");
+  if (!rows.length) return;
+
+  function pill(kind, text) {
+    var color = kind === "live" ? "active" : (kind === "connecting" ? "pending"
+              : (kind === "error" ? "rejected" : "disabled"));
+    return '<span class="pill pill-' + color + '">' + text + "</span>";
+  }
+
+  function refresh() {
+    fetch("{{ url_for('cameras.status') }}", { credentials: "same-origin" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data) return;
+        data.cameras.forEach(function (camera) {
+          var row = document.querySelector('[data-camera-row="' + camera.id + '"]');
+          if (!row) return;
+          var status = row.querySelector("[data-camera-status]");
+          var seen = row.querySelector("[data-camera-seen]");
+          if (status) {
+            status.innerHTML = camera.running
+              ? pill(camera.status, camera.status)
+              : pill("stopped", "stopped");
+          }
+          if (seen && camera.last_frame_at) seen.textContent = camera.last_frame_at;
+        });
+      })
+      .catch(function () { /* leave the page as-is if polling fails */ });
+  }
+
+  setInterval(refresh, 3000);
+})();
+</script>
+{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Cameras</h1>
+    <p class="muted">
+      CCTV sources connected to IMANI. A monitored camera streams to the
+      server, which detects each person, extracts their traits and stores a
+      capture &mdash; exactly as if an edge agent had posted it.
+    </p>
+  </div>
+  {% if can_manage %}
+  <div class="head-actions">
+    <a class="btn btn-primary" href="{{ url_for('cameras.create') }}">Connect camera</a>
+  </div>
+  {% endif %}
+</div>
+
+{% if engine_problem %}
+<div class="card" style="border-color: var(--danger); margin-bottom: 1.2rem;">
+  <p><strong>Live monitoring unavailable.</strong> {{ engine_problem }}</p>
+  <p class="muted small">Demo cameras still work &mdash; real streams need OpenCV installed on this server.</p>
+</div>
+{% endif %}
+
+{% if cameras %}
+<div class="card table-wrap">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Camera</th><th>Location</th><th>Source</th><th>Status</th>
+        <th>Captures</th><th>Last seen</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for camera in cameras %}
+      <tr data-camera-row="{{ camera.id }}">
+        <td>
+          <a href="{{ url_for('cameras.detail', camera_id=camera.id) }}"><strong>{{ camera.name }}</strong></a>
+        </td>
+        <td class="muted small">{{ camera.location or '&mdash;' | safe }}</td>
+        <td class="muted small">{{ source_labels.get(camera.source_type, camera.source_type) }}</td>
+        <td data-camera-status>
+          {% if camera.running and camera.live == 'live' %}
+            <span class="pill pill-active">live</span>
+          {% elif camera.running and camera.live == 'connecting' %}
+            <span class="pill pill-pending">connecting</span>
+          {% elif camera.live == 'unavailable' %}
+            <span class="pill pill-unavailable" title="{{ camera.live_error or '' }}">unavailable</span>
+          {% elif camera.live == 'error' %}
+            <span class="pill pill-rejected" title="{{ camera.live_error or '' }}">error</span>
+          {% else %}
+            <span class="pill pill-disabled">stopped</span>
+          {% endif %}
+        </td>
+        <td class="muted small" data-camera-captures>{{ camera.capture_count }}</td>
+        <td class="muted small" data-camera-seen>{{ camera.last_frame_at or '&mdash;' | safe }}</td>
+        <td class="row-actions">
+          <a class="btn btn-small" href="{{ url_for('cameras.detail', camera_id=camera.id) }}">Open</a>
+          {% if can_manage %}
+          {% if camera.running %}
+          <form class="inline-form" method="post" action="{{ url_for('cameras.stop', camera_id=camera.id) }}">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-small btn-danger" type="submit">Stop</button>
+          </form>
+          {% else %}
+          <form class="inline-form" method="post" action="{{ url_for('cameras.start', camera_id=camera.id) }}">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-small btn-primary" type="submit">Start</button>
+          </form>
+          {% endif %}
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="card empty">
+  <p class="empty-mark">&#128249;</p>
+  <h2>No cameras connected</h2>
+  <p class="muted">
+    Connect a CCTV stream and IMANI will capture and re-identify everyone it
+    sees. Start with the <strong>demo</strong> camera to see the pipeline run
+    with no hardware.
+  </p>
+  {% if can_manage %}
+  <p><a class="btn btn-primary" href="{{ url_for('cameras.create') }}">Connect camera</a></p>
+  {% endif %}
+</div>
+{% endif %}
+<script>
+// Poll the live camera status so the page shows monitoring without a reload.
+(function () {
+  var rows = document.querySelectorAll("[data-camera-row]");
+  if (!rows.length) return;
+
+  function pill(kind, text) {
+    var color = kind === "live" ? "active" : (kind === "connecting" ? "pending"
+              : (kind === "error" ? "rejected" : "disabled"));
+    return '<span class="pill pill-' + color + '">' + text + "</span>";
+  }
+
+  function refresh() {
+    fetch("{{ url_for('cameras.status') }}", { credentials: "same-origin" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data) return;
+        data.cameras.forEach(function (camera) {
+          var row = document.querySelector('[data-camera-row="' + camera.id + '"]');
+          if (!row) return;
+          var status = row.querySelector("[data-camera-status]");
+          var seen = row.querySelector("[data-camera-seen]");
+          if (status) {
+            status.innerHTML = camera.running
+              ? pill(camera.status, camera.status)
+              : pill("stopped", "stopped");
+          }
+          if (seen && camera.last_frame_at) seen.textContent = camera.last_frame_at;
+        });
+      })
+      .catch(function () { /* leave the page as-is if polling fails */ });
+  }
+
+  setInterval(refresh, 3000);
+})();
+</script>
+{% endblock %}
