@@ -23,6 +23,7 @@
       <a href="{{ url_for('match.run') }}">Match</a>
       <a href="{{ url_for('sightings.index') }}">Sightings{% if review_count %} <span class="nav-dot">{{ review_count }}</span>{% endif %}</a>
       <a href="{{ url_for('cameras.index') }}">Cameras</a>
+      <a href="{{ url_for('archive.index') }}">Archive</a>
       {% if current_user.role in ('analyst', 'admin') %}
       <a href="{{ url_for('reports.overview') }}">Reports</a>
       {% endif %}
@@ -55,7 +56,7 @@
 
   <footer class="footer">
     <span>{{ app_name }} — {{ app_tagline }}</span>
-    <span class="foot-phase">Bit 10 &middot; CCTV connection &amp; surveillance</span>
+    <span class="foot-phase">Bit 11 &middot; Capture archive</span>
   </footer>
   <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>

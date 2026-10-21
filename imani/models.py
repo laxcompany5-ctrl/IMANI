@@ -906,3 +906,126 @@ class CameraRepository:
             (last_frame_at, last_capture_at, camera_id),
         )
         db.commit()
+
+
+class MediaRepository:
+    """Index of the footage stored on disk for each capture (Bit 11)."""
+
+    @staticmethod
+    def add(sighting_id: int, kind: str, path: str, *, frame_count=None,
+            duration_ms=None, width=None, height=None, fps=None) -> int:
+        db = get_db()
+        cursor = db.execute(
+            "INSERT INTO capture_media (sighting_id, kind, path, frame_count, "
+            "duration_ms, width, height, fps) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (sighting_id, kind, path, frame_count, duration_ms, width, height, fps),
+        )
+        db.commit()
+        return cursor.lastrowid
+
+    @staticmethod
+    def for_sighting(sighting_id: int):
+        return get_db().execute(
+            "SELECT * FROM capture_media WHERE sighting_id = ? ORDER BY id",
+            (sighting_id,),
+        ).fetchall()
+
+    @staticmethod
+    def poster_for(sighting_id: int):
+        return get_db().execute(
+            "SELECT * FROM capture_media WHERE sighting_id = ? AND kind = 'frame' "
+            "ORDER BY id DESC LIMIT 1", (sighting_id,),
+        ).fetchone()
+
+    @staticmethod
+    def clip_for(sighting_id: int):
+        return get_db().execute(
+            "SELECT * FROM capture_media WHERE sighting_id = ? AND kind = 'clip' "
+            "ORDER BY id DESC LIMIT 1", (sighting_id,),
+        ).fetchone()
+
+    @staticmethod
+    def delete(media_id: int) -> None:
+        db = get_db()
+        db.execute("DELETE FROM capture_media WHERE id = ?", (media_id,))
+        db.commit()
+
+    @staticmethod
+    def delete_for_sighting(sighting_id: int) -> None:
+        db = get_db()
+        db.execute("DELETE FROM capture_media WHERE sighting_id = ?", (sighting_id,))
+        db.commit()
+
+    @staticmethod
+    def older_than(cutoff: str):
+        return get_db().execute(
+            "SELECT * FROM capture_media WHERE created_at < ? ORDER BY id",
+            (cutoff,),
+        ).fetchall()
+
+    @staticmethod
+    def count() -> int:
+        return get_db().execute(
+            "SELECT COUNT(*) AS n FROM capture_media"
+        ).fetchone()["n"]
+
+    @staticmethod
+    def set_image_ref(sighting_id: int, reference: str | None) -> None:
+        db = get_db()
+        db.execute(
+            "UPDATE sightings SET image_ref = ? WHERE id = ?",
+            (reference, sighting_id),
+        )
+        db.commit()
+
+    @staticmethod
+    def archive(camera: str | None = None, status: str | None = None,
+                date_from: str | None = None, date_to: str | None = None,
+                query: str | None = None,
+                limit: int = 24, offset: int = 0):
+        """Captures joined to their poster frame, newest first."""
+        where, params = MediaRepository._archive_filters(
+            camera, status, date_from, date_to, query
+        )
+        rows = get_db().execute(
+            "SELECT s.*, i.full_name AS individual_name, "
+            "       m.id AS media_id, m.path AS poster_path "
+            "FROM sightings s "
+            "LEFT JOIN individuals i ON i.id = s.individual_id "
+            "LEFT JOIN capture_media m ON m.id = ("
+            "    SELECT id FROM capture_media "
+            "    WHERE sighting_id = s.id AND kind = 'frame' "
+            "    ORDER BY id DESC LIMIT 1) "
+            f"WHERE {where} "
+            "ORDER BY s.created_at DESC, s.id DESC LIMIT ? OFFSET ?",
+            (*params, limit, offset),
+        ).fetchall()
+        total = get_db().execute(
+            f"SELECT COUNT(*) AS n FROM sightings s "
+            f"LEFT JOIN individuals i ON i.id = s.individual_id WHERE {where}",
+            params,
+        ).fetchone()["n"]
+        return rows, total
+
+    @staticmethod
+    def _archive_filters(camera, status, date_from, date_to, query):
+        clauses, params = [], []
+        if camera:
+            clauses.append("s.camera = ?")
+            params.append(camera)
+        if status:
+            clauses.append("s.status = ?")
+            params.append(status)
+        if date_from:
+            clauses.append("s.created_at >= ?")
+            params.append(f"{date_from} 00:00:00")
+        if date_to:
+            clauses.append("s.created_at <= ?")
+            params.append(f"{date_to} 23:59:59")
+        if query:
+            like = f"%{query}%"
+            clauses.append(
+                "(s.reference LIKE ? OR i.full_name LIKE ? OR s.camera LIKE ?)"
+            )
+            params.extend([like, like, like])
+        return (" AND ".join(clauses) if clauses else "1=1"), params

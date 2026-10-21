@@ -14,6 +14,8 @@ def app(tmp_path):
     class TestingConfig(TestConfig):
         # A file-backed DB so every request shares one store.
         DATABASE = str(tmp_path / "test.sqlite3")
+        # Keep test footage out of the real archive.
+        MEDIA_ROOT = str(tmp_path / "media")
 
     application = create_app(TestingConfig)
     with application.app_context():

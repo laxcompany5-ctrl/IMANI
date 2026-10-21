@@ -225,3 +225,22 @@ CREATE TABLE IF NOT EXISTS cameras (
 );
 
 CREATE INDEX IF NOT EXISTS idx_cameras_status ON cameras(status);
+
+-- The footage behind each sighting (Bit 11). One row per stored asset: a
+-- still frame (the poster) and the clip recorded around the moment a person
+-- was caught, so a capture can be reviewed long after it happened.
+CREATE TABLE IF NOT EXISTS capture_media (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    sighting_id INTEGER NOT NULL,
+    kind        TEXT    NOT NULL CHECK (kind IN ('frame', 'clip')),
+    path        TEXT    NOT NULL,   -- relative to MEDIA_ROOT
+    frame_count INTEGER,
+    duration_ms INTEGER,
+    width       INTEGER,
+    height      INTEGER,
+    fps         REAL,
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_capture_media_sighting ON capture_media(sighting_id);
+CREATE INDEX IF NOT EXISTS idx_capture_media_kind ON capture_media(kind);

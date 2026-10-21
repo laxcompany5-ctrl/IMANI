@@ -16,6 +16,7 @@
   </div>
   <div class="head-actions">
     <a class="btn btn-ghost" href="{{ url_for('sightings.index') }}">All sightings</a>
+    <a class="btn btn-ghost" href="{{ url_for('archive.detail', sighting_id=sighting.id) }}">View in archive</a>
     {% if current_user.role in ('analyst', 'admin') %}
     <a class="btn btn-ghost" href="{{ url_for('sightings.review') }}">Review queue</a>
     {% endif %}

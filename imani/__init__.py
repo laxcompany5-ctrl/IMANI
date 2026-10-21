@@ -46,6 +46,7 @@ def create_app(config_object: type | None = None) -> Flask:
     # --- Blueprints ---------------------------------------------------
     from .routes import (
         admin,
+        archive,
         auth_routes,
         cameras,
         dashboard,
@@ -63,6 +64,7 @@ def create_app(config_object: type | None = None) -> Flask:
     app.register_blueprint(match.bp)
     app.register_blueprint(sightings.bp)
     app.register_blueprint(cameras.bp)
+    app.register_blueprint(archive.bp)
     app.register_blueprint(ingest.bp)
     app.register_blueprint(reports.bp)
     app.register_blueprint(admin.bp)

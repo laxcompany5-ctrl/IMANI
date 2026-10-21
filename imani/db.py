@@ -50,7 +50,7 @@ def reset_db_command() -> None:
     """Drop every table and recreate an empty database (development only)."""
     db = get_db()
     db.executescript(
-        "DROP TABLE IF EXISTS cameras; "
+        "DROP TABLE IF EXISTS capture_media; DROP TABLE IF EXISTS cameras; "
         "DROP TABLE IF EXISTS identity_profiles; DROP TABLE IF EXISTS sightings; "
         "DROP TABLE IF EXISTS match_results; DROP TABLE IF EXISTS match_runs; "
         "DROP TABLE IF EXISTS audit_log; DROP TABLE IF EXISTS individuals; "

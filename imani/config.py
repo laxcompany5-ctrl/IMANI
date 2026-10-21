@@ -71,6 +71,18 @@ class Config:
     # How many face templates to keep in each identity profile gallery.
     PROFILE_MAX_FACE_TEMPLATES = int(os.environ.get("IMANI_PROFILE_MAX_FACES", "5"))
 
+    # --- Capture archive (Bit 11) -------------------------------------
+    # Where recorded footage is kept. Sits next to the database.
+    MEDIA_ROOT = os.environ.get(
+        "IMANI_MEDIA_ROOT", str(BASE_DIR / "instance" / "media")
+    )
+    # Frames held in memory per camera to build a clip when a person is caught.
+    MEDIA_CLIP_FRAMES = int(os.environ.get("IMANI_MEDIA_CLIP_FRAMES", "24"))
+    # Frame rate the clip is replayed at in the archive.
+    MEDIA_CLIP_FPS = float(os.environ.get("IMANI_MEDIA_CLIP_FPS", "5"))
+    # How long footage is kept. 0 keeps it forever.
+    MEDIA_RETENTION_DAYS = int(os.environ.get("IMANI_MEDIA_RETENTION_DAYS", "90"))
+
     # --- Database -----------------------------------------------------
     DATABASE = os.environ.get(
         "IMANI_DATABASE", str(BASE_DIR / "instance" / "imani.sqlite3")

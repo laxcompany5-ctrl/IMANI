@@ -19,7 +19,7 @@ from flask import (
     url_for,
 )
 
-from .. import auth, capture, matching
+from .. import auth, capture, matching, media
 from ..models import AuditRepository, IndividualRepository, ProfileRepository, SightingRepository
 from ..validation import BUILD_OPTIONS, GAIT_OPTIONS, POSTURE_OPTIONS
 
@@ -174,6 +174,7 @@ def enroll(sighting_id: int):
 @auth.role_required("analyst")
 def delete(sighting_id: int):
     sighting = _get_or_404(sighting_id)
+    media.delete_for_sighting(sighting_id)
     SightingRepository.delete(sighting_id)
     AuditRepository.record(
         "DELETE", ENTITY, sighting_id,

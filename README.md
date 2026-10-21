@@ -48,6 +48,11 @@ A security-analyst web app built in small, working increments ("bits").
 > press **Start**, and the server reads it itself — detecting people, extracting
 > traits and storing captures through the same engine the API uses, with a live
 > view and per-camera status.
+>
+> **Bit 11 — Capture archive:** the long-term store. Every capture is written to
+> disk with the footage around it — a still and a short clip — plus its
+> timestamp, so an analyst can review what a camera saw long after the moment
+> passed. Browse, filter, replay and prune from `/archive`.
 
 ---
 
@@ -380,6 +385,46 @@ and updates its own row (`connecting` → `live` → `stopped`), so a dead strea
 never takes the app down. Credentials in a stream URL are stored, but treat
 `cameras.source_url` as sensitive — it may contain `rtsp://user:password@…`.
 
+### The capture archive
+
+A capture is only useful if you can go back to it. Every capture is written to
+disk under `MEDIA_ROOT` (default `instance/media/`), grouped by date, camera and
+reference:
+
+```
+instance/media/2026-10-21/front-desk/SG-00012/
+    frame-0001.jpg … frame-0024.jpg   the clip, oldest first
+    poster.jpg                        the still shown in the grid
+    manifest.json                     fps, frame count, timestamps
+```
+
+The monitor keeps a rolling buffer of recent frames. When a person triggers a
+capture it keeps recording for a short post-roll, then writes the whole window —
+so the clip shows the moment, not just the frames that preceded it. The still
+and the clip are indexed in `capture_media` against the sighting.
+
+From `/archive` you can:
+
+- browse every capture as a grid of stills, newest first;
+- filter by camera, decision and date, or search reference/person/camera;
+- open a capture to replay its recorded clip in the browser, with the exact
+  timestamp, the traits and the match breakdown beside it;
+- prune footage older than the retention window (admin only).
+
+Retention is controlled by `IMANI_MEDIA_RETENTION_DAYS` (default 90; `0` keeps
+forever) and enforced by the **Prune** action. Deleting a sighting deletes its
+footage too. Clips are stored as a frame sequence rather than an encoded video,
+so replay needs no ffmpeg — and the demo camera draws its (clearly labelled)
+synthetic frames, so the whole archive works with no hardware.
+
+| Endpoint | Who | What |
+|----------|-----|------|
+| `/archive` | any signed-in user | Browse and filter all recorded captures |
+| `/archive/<id>` | any signed-in user | Replay one capture with its timestamp |
+| `/archive/<id>/frame` | any signed-in user | The still frame |
+| `/archive/<id>/clip.json` | any signed-in user | Frame list for the player |
+| `/archive/prune` | admin | Delete footage past the retention window |
+
 ---
 
 ## 4. Security measures
@@ -427,12 +472,14 @@ imani-web/
 │   ├── reports.py          # CSV + printable-report helpers
 │   ├── capture.py          # CCTV ingestion + re-identification (Bit 8)
 │   ├── surveillance.py     # monitor threads: read cameras in-app (Bit 10)
+│   ├── media.py            # footage written to disk and read back (Bit 11)
 │   ├── routes/
 │   │   ├── home.py         # /  (public landing page)
 │   │   ├── auth_routes.py  # login, signup, logout, /auth/google[/callback]
 │   │   ├── individuals.py  # /individuals  (search / insert / update / delete)
 │   │   ├── match.py        # /match  (run a probe, history, results)
 │   │   ├── cameras.py      # /cameras  (connect CCTV, monitor, live view)
+│   │   ├── archive.py      # /archive  (recorded footage, replay, retention)
 │   │   ├── sightings.py    # /sightings  (capture feed, review, actions)
 │   │   ├── ingest.py       # /ingest/capture  (device API, X-API-Key)
 │   │   ├── reports.py      # /reports, /activity, /activity/export.csv
@@ -459,7 +506,8 @@ imani-web/
     ├── test_reports.py     # reports overview, CSV exports, case reports, activity log
     ├── test_capture.py     # CCTV ingestion, re-identification, profiles, sightings console
     ├── test_agent.py       # capture agent: traits, tracking, payloads, delivery
-    └── test_cameras.py     # camera registry, monitoring, live view, RBAC
+    ├── test_cameras.py     # camera registry, monitoring, live view, RBAC
+    └── test_archive.py     # footage storage, replay, retention, RBAC
 ```
 
 ---
@@ -500,4 +548,5 @@ is in `deploy/DEPLOY.md`.
 - **Bit 8 (done)** — CCTV capture & re-identification: ingestion API, sightings, auto-enrolment, learning identity profiles.
 - **Bit 9 (done)** — Capture agent: standalone camera-side program (OpenCV detection, IoU tracking, trait extraction, resilient delivery) that feeds `/ingest/capture`.
 - **Bit 10 (done)** — CCTV connection & surveillance: camera registry, in-app monitor threads, live MJPEG view, per-camera status.
-- **Bit 11+** — Deployment hardening and next increments.
+- **Bit 11 (done)** — Capture archive: footage written to disk, replayed in the browser, filterable and pruned by retention.
+- **Bit 12+** — Deployment hardening and next increments.

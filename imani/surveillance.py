@@ -26,11 +26,12 @@ from __future__ import annotations
 
 import threading
 import time
+from collections import deque
 from datetime import datetime
 
 from flask import current_app
 
-from . import capture
+from . import capture, media
 from .models import CameraRepository
 
 # How long to wait for a monitor thread to finish when stopping it.
@@ -45,6 +46,9 @@ FRAME_STRIDE = 5
 CONFIRM_HITS = 3
 # Seconds between captures of the same person at the same camera.
 MIN_INTERVAL = 15.0
+# Seconds of footage to keep recording after a capture so the clip shows the
+# moment, not just the frames before it.
+POST_ROLL = 1.5
 
 # The trait engine is shared with the capture agent (agent/), which ships in
 # this repository. Import defensively: if it is missing, monitoring a real
@@ -68,7 +72,7 @@ def _now() -> str:
 
 # --- Frame sources --------------------------------------------------------
 
-def _video_source(camera, stop_event, on_frame):
+def _video_source(camera, stop_event, on_frame, on_idle=None):
     """Read a real camera with OpenCV and yield ``(timestamp, detections)``."""
     from agent import vision
 
@@ -98,24 +102,35 @@ def _video_source(camera, stop_event, on_frame):
         capture_obj.release()
 
 
-def _demo_source(camera, stop_event, on_frame):
-    """Replay a synthetic walk on a loop, so the pipeline runs with no camera."""
+def _demo_source(camera, stop_event, on_frame, on_idle=None):
+    """Replay a synthetic walk on a loop, so the pipeline runs with no camera.
+
+    The frames are drawn (and labelled SYNTHETIC FEED) rather than photographed,
+    so the archive has footage to replay without pretending to be real video.
+    """
     while not stop_event.is_set():
-        for item in synthetic_frames():
+        for timestamp, detections in synthetic_frames():
             if stop_event.is_set():
                 return
-            on_frame([], None)
-            yield item
+            jpeg = None
+            if detections:
+                jpeg = media.render_demo_frame(
+                    detections[0], camera=camera["name"],
+                )
+            on_frame(detections, jpeg)
+            yield timestamp, detections
+        if on_idle is not None:
+            on_idle()  # end of this walk: finish any clip in progress
         deadline = time.monotonic() + DEMO_PAUSE
         while time.monotonic() < deadline and not stop_event.is_set():
             time.sleep(0.1)
 
 
-def frame_source(camera, stop_event, on_frame):
+def frame_source(camera, stop_event, on_frame, on_idle=None):
     """Pick the right source for a camera and yield ``(timestamp, detections)``."""
     if (camera["source_type"] or "rtsp") == "demo":
-        return _demo_source(camera, stop_event, on_frame)
-    return _video_source(camera, stop_event, on_frame)
+        return _demo_source(camera, stop_event, on_frame, on_idle)
+    return _video_source(camera, stop_event, on_frame, on_idle)
 
 
 # --- In-process ingestion -------------------------------------------------
@@ -151,6 +166,11 @@ class Monitor:
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
         self._latest_jpeg: bytes | None = None
+        self._buffer: deque = deque(
+            maxlen=max(2, int(app.config.get("MEDIA_CLIP_FRAMES", 24)))
+        )
+        # Clips still collecting their post-roll before being written.
+        self._pending: list[dict] = []
         self._last_flush = time.monotonic()
 
         # Live state. These are the values shown on the cameras page while a
@@ -183,6 +203,7 @@ class Monitor:
         self._stop.set()
         if self._thread is not None:
             self._thread.join(timeout=JOIN_TIMEOUT)
+        self._finalize_pending()
         self._set_state("stopped", None)
 
     def latest_jpeg(self) -> bytes | None:
@@ -212,7 +233,10 @@ class Monitor:
                 confirm_hits=CONFIRM_HITS,
             )
             client = _LocalIngest(self.app, on_result=self._on_capture)
-            frames = frame_source(self.camera, self._stop, on_frame=self._on_frame)
+            frames = frame_source(
+                self.camera, self._stop,
+                on_frame=self._on_frame, on_idle=self._finalize_pending,
+            )
             process(config, frames, client, emit=lambda _payload: None)
             # Only reachable when the source ended on its own (a finished file,
             # a closed stream, or a stop request).
@@ -220,6 +244,7 @@ class Monitor:
         except Exception as exc:  # a dead stream must not take the server down
             self._set_state("error", str(exc))
         finally:
+            self._finalize_pending()
             self._flush(force=True)
 
     def _set_state(self, status: str, error: str | None) -> None:
@@ -239,12 +264,53 @@ class Monitor:
             self._set_state("live", None)
         if jpeg:
             self._latest_jpeg = jpeg
+            self._buffer.append((time.time(), jpeg))
+            for item in self._pending:
+                item["frames"].append((time.time(), jpeg))
+        self._finalize_pending(expired_only=True)
         self._flush()
 
     def _on_capture(self, payload: dict, result: dict) -> None:
         self.captures += 1
         self.last_capture_at = _now()
+        sighting_id = result.get("sighting_id")
+        if sighting_id and self._buffer:
+            self._pending.append({
+                "sighting_id": sighting_id,
+                "reference": result.get("reference") or f"SG-{sighting_id}",
+                "frames": list(self._buffer),
+                "deadline": time.monotonic() + POST_ROLL,
+            })
         self._flush()
+
+    def _finalize_pending(self, expired_only: bool = False) -> None:
+        """Write clips whose post-roll has finished.
+
+        Archiving is best-effort: a full disk or an unreadable frame must never
+        stop the camera from monitoring.
+        """
+        if not self._pending:
+            return
+        now = time.monotonic()
+        ready = [
+            item for item in self._pending
+            if not expired_only or now >= item["deadline"]
+        ]
+        if not ready:
+            return
+        self._pending = [item for item in self._pending if item not in ready]
+        fps = float(self.app.config.get("MEDIA_CLIP_FPS", 5.0)) or 5.0
+        for item in ready:
+            try:
+                with self.app.app_context():
+                    manifest = media.save_capture(
+                        self.camera["name"], _now(), item["reference"],
+                        item["frames"], fps,
+                    )
+                    if manifest:
+                        media.attach(item["sighting_id"], manifest)
+            except Exception:  # pragma: no cover - never take the camera down
+                pass
 
     def _flush(self, force: bool = False) -> None:
         now = time.monotonic()

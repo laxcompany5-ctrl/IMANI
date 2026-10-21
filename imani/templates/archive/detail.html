@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %}Capture {{ sighting.reference }}{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Capture <code>{{ sighting.reference }}</code></h1>
+    <p class="muted">
+      Recorded {{ sighting.captured_at or sighting.created_at }}
+      at <strong>{{ sighting.camera or 'unknown camera' }}</strong>.
+    </p>
+  </div>
+  <div class="head-actions">
+    <a class="btn btn-ghost" href="{{ url_for('archive.index') }}">Back to archive</a>
+    <a class="btn btn-ghost" href="{{ url_for('sightings.detail', sighting_id=sighting.id) }}">Open sighting</a>
+  </div>
+</div>
+
+<div class="detail-grid">
+  <section class="card">
+    <h2>Footage</h2>
+    {% if clip or poster %}
+    <div class="replay"
+         {% if clip %}data-clip-url="{{ url_for('archive.clip_manifest', sighting_id=sighting.id) }}"{% endif %}>
+      <img id="replay-frame" class="live-frame"
+           src="{{ url_for('archive.frame', sighting_id=sighting.id) }}"
+           alt="Footage of capture {{ sighting.reference }}">
+      {% if clip %}
+      <div class="replay-controls">
+        <button class="btn btn-small btn-primary" type="button" data-replay="toggle">Play recording</button>
+        <span class="muted small" data-replay-status></span>
+      </div>
+      {% else %}
+      <p class="muted small" style="margin-top:.5rem;">Still frame only — no clip was stored.</p>
+      {% endif %}
+    </div>
+    {% else %}
+    <div class="empty">
+      <p class="empty-mark">&#128249;</p>
+      <p class="muted">No footage was stored for this capture.</p>
+    </div>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <h2>Details</h2>
+    <dl class="detail-list">
+      <div><dt>Captured</dt><dd>{{ sighting.captured_at or sighting.created_at }}</dd></div>
+      <div><dt>Camera</dt><dd>{{ sighting.camera or '—' }}</dd></div>
+      <div><dt>Decision</dt>
+        <dd><span class="pill pill-{{ 'active' if sighting.status == 'identified' else 'pending' }}">{{ sighting.status }}</span></dd>
+      </div>
+      <div><dt>Score</dt>
+        <dd>{{ '%.1f' % sighting.score if sighting.score is not none else '—' }}
+          {% if sighting.band %}<span class="muted small">({{ sighting.band }})</span>{% endif %}</dd>
+      </div>
+      <div><dt>Person</dt>
+        <dd>
+          {% if person %}
+          <a href="{{ url_for('individuals.detail', individual_id=person.id) }}">{{ person.full_name }}</a>
+          {% else %}<span class="muted">Unresolved</span>{% endif %}
+        </dd>
+      </div>
+      <div><dt>Assets</dt><dd>{{ assets | length }} stored</dd></div>
+    </dl>
+  </section>
+</div>
+
+<div class="detail-grid" style="margin-top: 1.3rem;">
+  <section class="card">
+    <h2>Traits captured</h2>
+    <dl class="detail-list">
+      <div><dt>Height</dt><dd>{{ sighting.height_cm ~ ' cm' if sighting.height_cm else '—' }}</dd></div>
+      <div><dt>Build</dt><dd>{{ sighting.build or '—' }}</dd></div>
+      <div><dt>Posture</dt><dd>{{ sighting.posture or '—' }}</dd></div>
+      <div><dt>Gait</dt><dd>{{ sighting.gait or '—' }}</dd></div>
+      <div><dt>Face template</dt>
+        <dd>{% if sighting.face_template %}<span class="pill pill-active">stored</span>{% else %}<span class="muted">none</span>{% endif %}</dd>
+      </div>
+    </dl>
+  </section>
+
+  <section class="card">
+    <h2>Match breakdown</h2>
+    {% if breakdown %}
+    <dl class="detail-list">
+      {% for label, value in breakdown.items() %}
+      <div><dt>{{ label }}</dt><dd>{{ '%.1f' % value if value is number else value }}</dd></div>
+      {% endfor %}
+    </dl>
+    {% else %}
+    <p class="muted">No comparison was recorded for this capture.</p>
+    {% endif %}
+  </section>
+</div>
+
+{% if clip %}
+<script>
+(function () {
+  "use strict";
+  var root = document.querySelector(".replay[data-clip-url]");
+  if (!root) return;
+  var image = document.getElementById("replay-frame");
+  var toggle = root.querySelector('[data-replay="toggle"]');
+  var status = root.querySelector("[data-replay-status]");
+  var frames = [];
+  var timer = null;
+  var position = 0;
+
+  function show(index) {
+    if (!frames.length) return;
+    position = (index + frames.length) % frames.length;
+    image.src = frames[position].url;
+    if (status) status.textContent = "frame " + (position + 1) + " / " + frames.length;
+  }
+
+  function stop() {
+    if (timer) { clearInterval(timer); timer = null; }
+    if (toggle) toggle.textContent = "Play recording";
+  }
+
+  function play() {
+    stop();
+    if (!frames.length) return;
+    var interval = Math.max(80, 1000 / (root.dataset.fps || 5));
+    timer = setInterval(function () { show(position + 1); }, interval);
+    if (toggle) toggle.textContent = "Pause";
+  }
+
+  fetch(root.dataset.clipUrl, { credentials: "same-origin" })
+    .then(function (response) { return response.ok ? response.json() : null; })
+    .then(function (data) {
+      if (!data || !data.frames || !data.frames.length) return;
+      frames = data.frames;
+      root.dataset.fps = data.fps || 5;
+      // Preload so playback does not flicker.
+      frames.forEach(function (frame) { var img = new Image(); img.src = frame.url; });
+      show(0);
+      if (status) status.textContent = frames.length + " frames at " + (data.fps || 5) + " fps";
+    })
+    .catch(function () { /* leave the still frame in place */ });
+
+  if (toggle) {
+    toggle.addEventListener("click", function () {
+      if (timer) { stop(); } else { play(); }
+    });
+  }
+  image.addEventListener("click", function () {
+    if (timer) { stop(); } else { play(); }
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

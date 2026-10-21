@@ -601,3 +601,45 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 .inline-form { display: inline; }
 .detail-grid .card h2 { margin-bottom: .8rem; }
 .pill-unavailable { background: rgba(165,150,199,.16); color: #cbbfe8; border: 1px dashed var(--border-2); }
+
+/* --- Capture archive (Bit 11) --------------------------------------- */
+.archive-filters { flex-wrap: wrap; }
+.archive-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 1rem;
+}
+.archive-card {
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  color: inherit;
+}
+.archive-card:hover { border-color: var(--primary); text-decoration: none; }
+.archive-thumb {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  background: #000;
+}
+.archive-thumb img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.archive-nomedia {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--muted); font-size: .85rem;
+}
+.archive-stamp {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  padding: .4rem .6rem;
+  font-size: .72rem;
+  background: linear-gradient(transparent, rgba(0, 0, 0, .82));
+  color: #efe9fc;
+}
+.archive-meta { padding: .7rem .8rem; display: flex; flex-direction: column; gap: .25rem; }
+.archive-title { display: flex; justify-content: space-between; align-items: center; gap: .4rem; }
+.replay-controls { display: flex; align-items: center; gap: .6rem; margin-top: .6rem; flex-wrap: wrap; }
+.pager { display: flex; align-items: center; gap: .8rem; margin-top: 1.2rem; }

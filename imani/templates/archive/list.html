@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}Capture archive{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Capture archive</h1>
+    <p class="muted">
+      Everything the cameras recorded, kept with its timestamp so you can review
+      what was captured long after the moment passed.
+    </p>
+  </div>
+  {% if current_user.role == 'admin' %}
+  <div class="head-actions">
+    <form class="inline-form" method="post" action="{{ url_for('archive.prune') }}">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-ghost" type="submit"
+              title="Delete footage older than {{ retention_days }} days">
+        Prune older than {{ retention_days }}d
+      </button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+
+<div class="stat-grid">
+  <div class="card stat">
+    <span class="stat-value">{{ total }}</span>
+    <span class="stat-label">captures recorded</span>
+  </div>
+  <div class="card stat">
+    <span class="stat-value">{{ media_count }}</span>
+    <span class="stat-label">stored assets</span>
+  </div>
+  <div class="card stat">
+    <span class="stat-value">{{ (usage.bytes / 1048576) | round(1) }} MB</span>
+    <span class="stat-label">on disk ({{ usage.files }} files)</span>
+  </div>
+  <div class="card stat">
+    <span class="stat-value">{{ retention_days }}d</span>
+    <span class="stat-label">retention</span>
+  </div>
+</div>
+
+<form class="card searchbar archive-filters" method="get" action="{{ url_for('archive.index') }}">
+  <div class="search-input">
+    <input type="search" name="q" value="{{ query }}"
+           placeholder="Search reference, person or camera">
+  </div>
+  <select name="camera" aria-label="Camera">
+    <option value="">All cameras</option>
+    {% for option in cameras %}
+    <option value="{{ option }}" {{ 'selected' if camera == option }}>{{ option }}</option>
+    {% endfor %}
+  </select>
+  <select name="status" aria-label="Decision">
+    <option value="">Any decision</option>
+    {% for option in statuses %}
+    <option value="{{ option }}" {{ 'selected' if status == option }}>{{ option }}</option>
+    {% endfor %}
+  </select>
+  <input type="date" name="from" value="{{ date_from }}" aria-label="From">
+  <input type="date" name="to" value="{{ date_to }}" aria-label="To">
+  <button class="btn btn-primary" type="submit">Filter</button>
+  <a class="btn btn-ghost" href="{{ url_for('archive.index') }}">Reset</a>
+</form>
+
+{% if captures %}
+<div class="archive-grid">
+  {% for capture in captures %}
+  <a class="card archive-card" href="{{ url_for('archive.detail', sighting_id=capture.id) }}">
+    <div class="archive-thumb">
+      {% if capture.media_id %}
+      <img src="{{ url_for('archive.frame', sighting_id=capture.id) }}"
+           alt="Capture {{ capture.reference }}" loading="lazy">
+      {% else %}
+      <span class="archive-nomedia">no footage</span>
+      {% endif %}
+      <span class="archive-stamp">{{ capture.captured_at or capture.created_at }}</span>
+    </div>
+    <div class="archive-meta">
+      <div class="archive-title">
+        <code>{{ capture.reference }}</code>
+        <span class="pill pill-{{ 'active' if capture.status == 'identified' else 'pending' }}">{{ capture.status }}</span>
+      </div>
+      <div class="muted small">{{ capture.camera }}</div>
+      <div class="small">
+        {% if capture.individual_name %}{{ capture.individual_name }}
+        {% else %}<span class="muted">Unresolved</span>{% endif %}
+      </div>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+
+{% if pages > 1 %}
+<div class="pager">
+  {% if page > 1 %}
+  <a class="btn btn-small" href="{{ url_for('archive.index', page=page-1, camera=camera, status=status, **{'from': date_from, 'to': date_to, 'q': query}) }}">Previous</a>
+  {% endif %}
+  <span class="muted small">Page {{ page }} of {{ pages }}</span>
+  {% if page < pages %}
+  <a class="btn btn-small" href="{{ url_for('archive.index', page=page+1, camera=camera, status=status, **{'from': date_from, 'to': date_to, 'q': query}) }}">Next</a>
+  {% endif %}
+</div>
+{% endif %}
+
+{% else %}
+<div class="card empty">
+  <p class="empty-mark">&#128250;</p>
+  <h2>Nothing recorded yet</h2>
+  <p class="muted">
+    Start a camera and every person it captures will be stored here with its
+    footage and timestamp.
+  </p>
+  <p><a class="btn btn-primary" href="{{ url_for('cameras.index') }}">Open cameras</a></p>
+</div>
+{% endif %}
+{% endblock %}

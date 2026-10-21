@@ -68,6 +68,7 @@
   <div class="form-actions">
     <a class="btn btn-primary" href="{{ url_for('cameras.index') }}">Cameras</a>
     <a class="btn" href="{{ url_for('sightings.index') }}">Open sightings</a>
+    <a class="btn" href="{{ url_for('archive.index') }}">Capture archive</a>
     {% if current_user.role in ('analyst', 'admin') %}
     <a class="btn" href="{{ url_for('cameras.create') }}">Connect camera</a>
     <a class="btn" href="{{ url_for('sightings.review') }}">Review queue</a>
