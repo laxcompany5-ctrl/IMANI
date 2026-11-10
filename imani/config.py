@@ -48,7 +48,12 @@ class Config:
     CSRF_ENABLED = True
     # Endpoints exempt from the session CSRF check — machine-to-machine APIs
     # that authenticate with a shared key in a header instead of the session.
-    CSRF_EXEMPT_ENDPOINTS = {"ingest.capture"}
+    # The QR scan endpoints authenticate with a signed, camera-scoped token.
+    CSRF_EXEMPT_ENDPOINTS = {
+        "ingest.capture",
+        "cameras.scan_frame",
+        "cameras.scan_audio",
+    }
 
     # Brute-force protection.
     MAX_FAILED_ATTEMPTS = 5
@@ -82,6 +87,19 @@ class Config:
     MEDIA_CLIP_FPS = float(os.environ.get("IMANI_MEDIA_CLIP_FPS", "5"))
     # How long footage is kept. 0 keeps it forever.
     MEDIA_RETENTION_DAYS = int(os.environ.get("IMANI_MEDIA_RETENTION_DAYS", "90"))
+
+    # --- Automatic recording (Bit 13) ---------------------------------
+    # Seconds between automatic snapshots while a camera is monitored.
+    SNAPSHOT_INTERVAL_SECONDS = float(
+        os.environ.get("IMANI_SNAPSHOT_INTERVAL", "30")
+    )
+    # Continuous video is written in segments of this many seconds.
+    VIDEO_SEGMENT_SECONDS = float(os.environ.get("IMANI_VIDEO_SEGMENT", "20"))
+    VIDEO_SEGMENT_ENABLED = (
+        os.environ.get("IMANI_VIDEO_SEGMENT_ENABLED", "1") == "1"
+    )
+    # Lifetime of a camera pairing QR link.
+    QR_TOKEN_MAX_AGE = int(os.environ.get("IMANI_QR_MAX_AGE", "2592000"))
 
     # --- Database -----------------------------------------------------
     DATABASE = os.environ.get(

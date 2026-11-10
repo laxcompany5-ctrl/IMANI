@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}Phone Capture - {{ camera.name }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>📱 Phone / Browser Capture</h1>
+    <p class="muted">Use this phone's camera and microphone to feed IMANI as <strong>{{ camera.name }}</strong>.</p>
+  </div>
+  <div class="head-actions">
+    <a class="btn btn-ghost" href="{{ url_for('cameras.detail', camera_id=camera.id) }}">Back to camera</a>
+    <a class="btn btn-ghost" href="{{ url_for('cameras.qr_page', camera_id=camera.id) }}">QR pairing</a>
+  </div>
+</div>
+<div class="card">
+  <div style="text-align:center;">
+    <video id="vid" autoplay playsinline muted style="max-width:100%;width:640px;border-radius:12px;background:#000;"></video>
+    <canvas id="canvas" style="display:none;"></canvas>
+    <div style="margin-top:1rem;">
+      <button class="btn btn-primary" id="start">Start Camera</button>
+      <button class="btn btn-ghost" id="stop" disabled>Stop</button>
+      <span id="status" class="muted">Not started</span>
+    </div>
+    <label style="display:block;margin-top:0.75rem;">
+      <input type="checkbox" id="withAudio" checked> Record microphone audio
+    </label>
+    <p class="muted small" style="margin-top:0.5rem;">Frames are sent at ~2 FPS and audio in 10-second slices. Use HTTPS, localhost or the LAN address.</p>
+    <p class="muted small" style="margin-top:0.5rem;">Pairing link: <code>{{ scan_url }}</code></p>
+  </div>
+</div>
+<script>
+const video = document.getElementById('vid');
+const canvas = document.getElementById('canvas');
+const start = document.getElementById('start');
+const stopBtn = document.getElementById('stop');
+const status = document.getElementById('status');
+const withAudio = document.getElementById('withAudio');
+let stream = null, timer = null, recorder = null, sending = false;
+const url = "{{ url_for('cameras.phone_capture', camera_id=camera.id) }}";
+const audioUrl = "{{ url_for('cameras.phone_audio', camera_id=camera.id) }}";
+const csrf = "{{ csrf_token() }}";
+
+function setStatus(text) { status.textContent = text; }
+
+function pickMime() {
+  const options = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg", "audio/mp4"];
+  if (!window.MediaRecorder) return null;
+  for (const mime of options) {
+    if (MediaRecorder.isTypeSupported(mime)) return mime;
+  }
+  return "";
+}
+
+function startAudio(mediaStream) {
+  const tracks = mediaStream.getAudioTracks();
+  if (!tracks.length || !window.MediaRecorder) return;
+  const mime = pickMime();
+  if (mime === null) return;
+  recorder = mime
+    ? new MediaRecorder(new MediaStream(tracks), { mimeType: mime })
+    : new MediaRecorder(new MediaStream(tracks));
+  recorder.ondataavailable = (event) => {
+    if (!event.data || !event.data.size) return;
+    const form = new FormData();
+    form.append('audio', event.data, 'audio.webm');
+    fetch(audioUrl, {
+      method: 'POST',
+      headers: { 'X-CSRF-Token': csrf },
+      body: form
+    }).catch(() => {});
+  };
+  recorder.start(10000);
+}
+
+start.onclick = async () => {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment' },
+      audio: withAudio.checked
+    });
+    video.srcObject = stream;
+    start.disabled = true; stopBtn.disabled = false;
+    setStatus('Streaming...');
+    timer = setInterval(capture, 500);
+    if (withAudio.checked) startAudio(stream);
+  } catch (e) { setStatus('Error: ' + e.message); }
+};
+stopBtn.onclick = () => {
+  if (timer) { clearInterval(timer); timer = null; }
+  if (recorder && recorder.state !== 'inactive') { try { recorder.stop(); } catch (e) {} }
+  recorder = null;
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+  start.disabled = false; stopBtn.disabled = true;
+  setStatus('Stopped');
+};
+function capture() {
+  if (sending || !video.videoWidth) return;
+  sending = true;
+  const ctx = canvas.getContext('2d');
+  canvas.width = Math.min(960, video.videoWidth);
+  canvas.height = Math.round(canvas.width * video.videoHeight / video.videoWidth);
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  const data = canvas.toDataURL('image/jpeg', 0.65);
+  fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+    body: JSON.stringify({ frame: data })
+  }).then(r => r.json()).then(j => {
+    setStatus(j.ok ? 'Streaming...' : ('Error: ' + (j.error || 'unknown')));
+  }).catch(() => {}).finally(() => { sending = false; });
+}
+</script>
+{% endblock %}

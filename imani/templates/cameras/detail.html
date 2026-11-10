@@ -31,6 +31,7 @@
       </form>
       {% endif %}
       <a class="btn" href="{{ url_for('cameras.edit', camera_id=camera.id) }}">Edit</a>
+      <a class="btn" href="{{ url_for('cameras.qr_page', camera_id=camera.id) }}">📱 QR pairing</a>
     {% endif %}
   </div>
 </div>
@@ -123,4 +124,70 @@
   <button class="btn btn-danger" type="button" data-confirm-delete="#delete-form">Delete camera</button>
 </div>
 {% endif %}
+
+<!-- Phone capture helper -->
+{% if camera.source_type == 'phone' and can_manage %}
+<div class="card" style="margin-top:1rem;">
+  <h2>📱 Phone / Browser Capture</h2>
+  <p class="muted">Open this link on your phone to use its camera as a live feed for IMANI.</p>
+  <p><a class="btn btn-primary" href="{{ url_for('cameras.phone_capture', camera_id=camera.id) }}" target="_blank">Open capture page on phone</a></p>
+  <p class="muted small">URL: {{ request.host_url }}{{ url_for('cameras.phone_capture', camera_id=camera.id)[1:] }}</p>
+</div>
+{% endif %}
+
+<!-- QR pairing (any camera type can pair a phone as a second view) -->
+<div class="card" style="margin-top:1rem;">
+  <h2>📱 Pair a phone by QR</h2>
+  <p class="muted">Show this code to a phone on the same network. Scanning it opens a capture page that streams camera frames (and optional audio) into IMANI.</p>
+  <p><a class="btn btn-primary" href="{{ url_for('cameras.qr_page', camera_id=camera.id) }}">Show QR code</a></p>
+</div>
+
+<!-- Algorithm settings -->
+<div class="card" style="margin-top:1rem;">
+  <h2>Algorithm settings</h2>
+  <div class="stat-grid">
+    <div class="stat"><span class="stat-value">{{ camera.algorithm.every_n_frames }}</span><span class="stat-label">Every N frames</span></div>
+    <div class="stat"><span class="stat-value">{{ camera.algorithm.confirm_hits }}</span><span class="stat-label">Confirm hits</span></div>
+    <div class="stat"><span class="stat-value">{{ camera.algorithm.min_interval_s }}s</span><span class="stat-label">Cooldown</span></div>
+    <div class="stat"><span class="stat-value">{{ camera.algorithm.iou_threshold }}</span><span class="stat-label">IoU threshold</span></div>
+    <div class="stat"><span class="stat-value">{{ camera.algorithm.camera_height_cm }}cm</span><span class="stat-label">Camera height</span></div>
+    <div class="stat"><span class="stat-value">{{ camera.algorithm.principal_y }}</span><span class="stat-label">Principal Y</span></div>
+  </div>
+  {% if can_manage %}<p style="margin-top:0.5rem;"><a class="btn btn-small" href="{{ url_for('cameras.edit', camera_id=camera.id) }}">Edit algorithm settings</a></p>{% endif %}
+</div>
+
+<!-- Group -->
+{% if camera.group %}
+<div class="card" style="margin-top:1rem;">
+  <h2>Group / Zone</h2>
+  <p><a href="{{ url_for('camera_groups.index') }}">{{ camera.group.name }}</a>{% if camera.group.description %} — <span class="muted">{{ camera.group.description }}</span>{% endif %}</p>
+</div>
+{% endif %}
+
+<!-- Snapshots -->
+<div class="card" style="margin-top:1rem;">
+  <h2>📸 Captured Photos from Video</h2>
+  <p class="muted">Capture and save still images from this camera's video feed.</p>
+  {% if can_manage %}
+  <form method="post" action="{{ url_for('snapshots.capture_now', camera_id=camera.id) }}" class="inline-form">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <button class="btn btn-primary" type="submit">📸 Capture snapshot now</button>
+  </form>
+  <a class="btn btn-ghost" href="{{ url_for('snapshots.index', camera_id=camera.id) }}">View all snapshots from this camera</a>
+  {% endif %}
+</div>
+
+<!-- Video Recordings -->
+<div class="card" style="margin-top:1rem;">
+  <h2>🎬 Video Recordings from Footage</h2>
+  <p class="muted">Save video footage from this camera for future reference (from current buffer).</p>
+  {% if can_manage %}
+  <form method="post" action="{{ url_for('videos.record_now', camera_id=camera.id) }}" class="inline-form">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <button class="btn btn-primary" type="submit">🎬 Save video recording now</button>
+  </form>
+  <a class="btn btn-ghost" href="{{ url_for('videos.index', camera_id=camera.id) }}">View all recordings from this camera</a>
+  {% endif %}
+</div>
+
 {% endblock %}

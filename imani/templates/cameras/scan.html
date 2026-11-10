@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ camera.name }} · IMANI phone camera</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: radial-gradient(1200px 600px at 20% -10%, #4c1d95, #1a0b2e 60%, #10061f); color: #efe9fc; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+    .wrap { max-width: 520px; margin: 0 auto; padding: 20px; }
+    h1 { font-size: 1.35rem; margin: 0 0 4px; }
+    .muted { color: #b9a9d9; }
+    .card { background: rgba(42, 21, 71, 0.85); border: 1px solid rgba(168, 85, 247, 0.35); border-radius: 14px; padding: 16px; margin-top: 14px; }
+    video { width: 100%; border-radius: 12px; background: #000; display: block; }
+    button { width: 100%; padding: 14px; margin-top: 12px; border: 0; border-radius: 12px; font-size: 1rem; font-weight: 600; background: #a855f7; color: #1a0b2e; }
+    button.secondary { background: #3b2061; color: #efe9fc; border: 1px solid rgba(168,85,247,.5); }
+    button:disabled { opacity: .5; }
+    .status { display: flex; align-items: center; gap: 8px; font-size: .95rem; margin-top: 10px; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: #94a3b8; }
+    .dot.live { background: #34d399; box-shadow: 0 0 10px #34d399; }
+    label { display: flex; gap: 8px; align-items: center; margin-top: 12px; font-size: .95rem; }
+    code { word-break: break-all; color: #d8b4fe; }
+    .big { font-size: 2rem; text-align: center; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>📱 {{ camera.name }}</h1>
+  <div class="muted">IMANI browser camera · paired by QR</div>
+
+  <div class="card">
+    <video id="vid" autoplay playsinline muted></video>
+    <label><input type="checkbox" id="withAudio" checked> Record microphone audio</label>
+    <button id="start">Start camera</button>
+    <button id="stop" class="secondary" disabled>Stop</button>
+    <div class="status"><span class="dot" id="dot"></span><span id="status">Ready — tap Start camera</span></div>
+    <p class="muted" style="font-size:.82rem;margin-bottom:0;">Keep this page open while streaming. Video frames go to IMANI at ~2 FPS; audio is uploaded every 10 seconds.</p>
+  </div>
+
+  <div class="card">
+    <div class="muted" style="font-size:.85rem;">Camera</div>
+    <div><strong>{{ camera.name }}</strong>{% if camera.location %} · {{ camera.location }}{% endif %}</div>
+    <div class="muted" style="font-size:.85rem;margin-top:8px;">Server</div>
+    <code>{{ request.host }}</code>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var FRAME_URL = {{ url_for('cameras.scan_frame', token=token)|tojson }};
+  var AUDIO_URL = {{ url_for('cameras.scan_audio', token=token)|tojson }};
+  var video = document.getElementById("vid");
+  var startBtn = document.getElementById("start");
+  var stopBtn = document.getElementById("stop");
+  var status = document.getElementById("status");
+  var dot = document.getElementById("dot");
+  var withAudio = document.getElementById("withAudio");
+  var canvas = document.createElement("canvas");
+  var stream = null;
+  var frameTimer = null;
+  var recorder = null;
+  var sending = false;
+
+  function setStatus(text, live) {
+    status.textContent = text;
+    dot.classList.toggle("live", !!live);
+  }
+
+  function pickMime() {
+    var options = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg", "audio/mp4"];
+    if (!window.MediaRecorder) return null;
+    for (var i = 0; i < options.length; i++) {
+      if (MediaRecorder.isTypeSupported(options[i])) return options[i];
+    }
+    return "";
+  }
+
+  function startAudio(mediaStream) {
+    var tracks = mediaStream.getAudioTracks();
+    if (!tracks.length || !window.MediaRecorder) return;
+    var mime = pickMime();
+    if (mime === null) return;
+    try {
+      recorder = mime ? new MediaRecorder(new MediaStream(tracks), { mimeType: mime })
+                      : new MediaRecorder(new MediaStream(tracks));
+    } catch (err) { return; }
+    recorder.ondataavailable = function (event) {
+      if (!event.data || !event.data.size) return;
+      var form = new FormData();
+      form.append("audio", event.data, "audio.webm");
+      fetch(AUDIO_URL, { method: "POST", body: form }).catch(function () {});
+    };
+    recorder.start(10000);
+  }
+
+  function sendFrame() {
+    if (sending || !video.videoWidth) return;
+    sending = true;
+    canvas.width = Math.min(960, video.videoWidth);
+    canvas.height = Math.round(canvas.width * video.videoHeight / video.videoWidth);
+    canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+    var data = canvas.toDataURL("image/jpeg", 0.65);
+    fetch(FRAME_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ frame: data })
+    }).then(function (response) {
+      if (!response.ok) throw new Error("server " + response.status);
+      setStatus("Streaming to IMANI", true);
+    }).catch(function (err) {
+      setStatus("Not reaching server: " + err.message, false);
+    }).finally(function () { sending = false; });
+  }
+
+  startBtn.addEventListener("click", function () {
+    var wantsAudio = withAudio.checked;
+    navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment" },
+      audio: wantsAudio
+    }).then(function (mediaStream) {
+      stream = mediaStream;
+      video.srcObject = mediaStream;
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+      setStatus("Streaming to IMANI", true);
+      frameTimer = setInterval(sendFrame, 500);
+      if (wantsAudio) startAudio(mediaStream);
+    }).catch(function (err) {
+      setStatus("Camera blocked: " + err.message, false);
+    });
+  });
+
+  function stopAll() {
+    if (frameTimer) { clearInterval(frameTimer); frameTimer = null; }
+    if (recorder && recorder.state !== "inactive") { try { recorder.stop(); } catch (e) {} }
+    recorder = null;
+    if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+    setStatus("Stopped", false);
+  }
+  stopBtn.addEventListener("click", stopAll);
+  window.addEventListener("pagehide", stopAll);
+})();
+</script>
+</body>
+</html>

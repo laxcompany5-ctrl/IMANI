@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit group' if group_id else 'New camera group' }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>{{ 'Edit group' if group_id else 'New camera group' }}</h1>
+    <p class="muted">Create a zone to organise cameras by site/location.</p>
+  </div>
+  <div class="head-actions">
+    <a class="btn btn-ghost" href="{{ url_for('camera_groups.index') }}">Cancel</a>
+  </div>
+</div>
+<form class="card form-grid" method="post" action="{{ url_for('camera_groups.edit', group_id=group_id) if group_id else url_for('camera_groups.create') }}">
+  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+  <fieldset class="form-section span-all">
+    <legend>Group</legend>
+    <div class="field">
+      <label for="name">Name</label>
+      <input id="name" name="name" value="{{ values.name }}" required placeholder="e.g. Main Site, Warehouse, Parking">
+    </div>
+    <div class="field">
+      <label for="description">Description</label>
+      <input id="description" name="description" value="{{ values.description or '' }}" placeholder="Optional notes about this zone">
+    </div>
+  </fieldset>
+  <div class="form-actions span-all">
+    <button class="btn btn-primary" type="submit">{{ 'Save group' if group_id else 'Create group' }}</button>
+    <a class="btn btn-ghost" href="{{ url_for('camera_groups.index') }}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}AI Matching Algorithm{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>🤖 AI Matching Algorithm</h1>
+    <p class="muted">The IMANI matching engine configuration and operation status.</p>
+  </div>
+  <div class="head-actions">
+    <a class="btn btn-ghost" href="{{ url_for('match.run') }}">Run Matching</a>
+    <a class="btn btn-ghost" href="{{ url_for('match.history') }}">History</a>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Algorithm Status</h2>
+  <p class="pill pill-active">ACTIVE - Algorithm is operational</p>
+  <p class="muted" style="margin-top:0.5rem;">The matching engine is actively scoring probes against the individual register using weighted trait comparison.</p>
+</div>
+
+<div class="card" style="margin-top:1rem;">
+  <h2>Trait Weights</h2>
+  <p class="muted">Current weighting configuration for the AI matching algorithm:</p>
+  <div class="stat-grid">
+    <div class="stat"><span class="stat-value">{{ (weights.gait * 100)|int }}%</span><span class="stat-label">Gait</span></div>
+    <div class="stat"><span class="stat-value">{{ (weights.height_cm * 100)|int }}%</span><span class="stat-label">Height</span></div>
+    <div class="stat"><span class="stat-value">{{ (weights.face * 100)|int }}%</span><span class="stat-label">Face</span></div>
+    <div class="stat"><span class="stat-value">{{ (weights.build * 100)|int }}%</span><span class="stat-label">Build</span></div>
+    <div class="stat"><span class="stat-value">{{ (weights.posture * 100)|int }}%</span><span class="stat-label">Posture</span></div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:1rem;">
+  <h2>Confidence Bands</h2>
+  <table class="table">
+    <thead><tr><th>Band</th><th>Threshold</th></tr></thead>
+    <tbody>
+      {% for threshold, name in bands %}
+      <tr><td><span class="pill pill-active">{{ name }}</span></td><td>≥ {{ threshold }}%</td></tr>
+      {% endfor %}
+      <tr><td><span class="pill">VERY LOW</span></td><td>&lt; 55%</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="card" style="margin-top:1rem;">
+  <h2>Parameters</h2>
+  <dl class="detail-list">
+    <div><dt>Height Tolerance</dt><dd>{{ tolerance }} cm</dd></div>
+    <div><dt>Normalization</dt><dd>Weights re-normalized for partial traits</dd></div>
+    <div><dt>Face Matching</dt><dd>Cosine similarity on face templates</dd></div>
+    <div><dt>Ordinal Traits</dt><dd>Partial credit for neighboring categories (build/posture)</dd></div>
+  </dl>
+</div>
+{% endblock %}

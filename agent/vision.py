@@ -112,3 +112,53 @@ def encode_jpeg(frame, quality: int = 80) -> bytes | None:
     if not ok:
         return None
     return buffer.tobytes()
+
+
+def _read_mjpeg(url_or_stream, stop_event, max_timeout=10.0):
+    """Very simple MJPEG reader using only stdlib (fallback when no OpenCV)."""
+    try:
+        from urllib.request import urlopen, Request
+        import io
+        req = Request(url_or_stream, headers={'User-Agent': 'IMANI/1.0'})
+        resp = urlopen(req, timeout=max_timeout)
+        data = bytearray()
+        boundary = None
+        ct = resp.headers.get('Content-Type') or resp.headers.get('content-type') or ''
+        if 'boundary=' in ct:
+            boundary = ct.split('boundary=')[-1].strip().strip('"')
+        while not stop_event.is_set():
+            chunk = resp.read(4096)
+            if not chunk:
+                break
+            data.extend(chunk)
+            if boundary:
+                sep = ('--' + boundary).encode()
+                while sep in data:
+                    idx = data.find(sep)
+                    # skip boundary
+                    start = idx + len(sep)
+                    # find header end
+                    he = data.find(b'\r\n\r\n', start)
+                    if he < 0:
+                        break
+                    hdr = bytes(data[start:he])
+                    # find jpeg
+                    soj = data.find(b'\xff\xd8', he)
+                    eoj = data.find(b'\xff\xd9', he)
+                    if soj >= 0 and eoj >= 0 and eoj > soj:
+                        jpg = bytes(data[soj:eoj+2])
+                        yield jpg
+                        data = data[eoj+2:]
+                    else:
+                        data = data[he+4:]
+            else:
+                # try to find any jpeg frame
+                soj = data.find(b'\xff\xd8')
+                eoj = data.find(b'\xff\xd9')
+                if soj >= 0 and eoj >= 0 and eoj > soj and len(data) > 10_000:
+                    jpg = bytes(data[soj:eoj+2])
+                    yield jpg
+                    data = data[eoj+2:]
+        resp.close()
+    except Exception as e:
+        raise

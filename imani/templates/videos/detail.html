@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Recording from {{ video.camera_name }}{% endblock %}
+{% block content %}
+{% set is_audio = video.kind == 'audio' %}
+<div class="page-head">
+  <div>
+    <h1>{% if is_audio %}🎙️ Audio Recording{% else %}🎬 Video Recording{% endif %} from {{ video.camera_name }}</h1>
+    <p class="muted">Captured {{ video.captured_at }} • {{ video.source_type }} • {{ video.kind or 'manual' }}{% if not is_audio %} • {{ video.frame_count }} frames • {{ '%.1f'|format(video.duration_sec or 0) }} seconds{% endif %}</p>
+  </div>
+  <div class="head-actions">
+    <a class="btn btn-ghost" href="{{ url_for('videos.index') }}">All recordings</a>
+    <a class="btn btn-ghost" href="{{ url_for('ai_search.index') }}">AI Search</a>
+    {% if video.camera_id %}
+    <a class="btn btn-ghost" href="{{ url_for('cameras.detail', camera_id=video.camera_id) }}">Camera</a>
+    {% endif %}
+    {% if current_user.role in ('analyst','admin') %}
+    <form method="post" action="{{ url_for('videos.delete', video_id=video.id) }}" class="inline-form" onsubmit="return confirm('Delete this recording?');">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-danger" type="submit">Delete</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+{% if is_audio %}
+<div class="card">
+  <h2>Audio Playback</h2>
+  <p class="muted">Microphone audio recorded by the phone that was streaming this camera.</p>
+  <audio controls preload="metadata" style="width:100%;" src="{{ url_for('videos.audio', video_id=video.id) }}"></audio>
+</div>
+{% else %}
+<div class="card">
+  <h2>Reference Video Playback</h2>
+  <p class="muted">Frame-sequence recording saved from the camera feed for future reference.</p>
+  <div class="replay" data-clip-url="{{ url_for('videos.manifest', video_id=video.id) }}">
+    <img id="replay-frame" class="live-frame" src="{{ url_for('videos.poster', video_id=video.id) }}" alt="Video recording">
+    <div class="replay-controls">
+      <button class="btn btn-small btn-primary" type="button" data-replay="toggle">Play</button>
+      <span class="muted small" data-replay-status></span>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<div class="card" style="margin-top:1rem;">
+  <h2>Description for AI search</h2>
+  <form method="post" action="{{ url_for('videos.describe', video_id=video.id) }}">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <div class="field">
+      <label for="description">Describe the person, object or colour in this recording</label>
+      <input id="description" type="text" name="description" value="{{ video.description or '' }}" placeholder="e.g. tall man in a red jacket near the gate">
+      <span class="hint">AI search matches these words and the recorded colours.</span>
+    </div>
+    <button class="btn btn-primary" type="submit">Save description</button>
+  </form>
+</div>
+
+<div class="card" style="margin-top:1rem;">
+  <h2>Details</h2>
+  <dl class="detail-list">
+    <div><dt>Camera</dt><dd>{{ video.camera_name }}</dd></div>
+    <div><dt>Source Type</dt><dd>{{ video.source_type }}</dd></div>
+    <div><dt>Kind</dt><dd>{{ video.kind or 'manual' }}</dd></div>
+    <div><dt>Captured</dt><dd>{{ video.captured_at }}</dd></div>
+    {% if not is_audio %}
+    <div><dt>Frames</dt><dd>{{ video.frame_count }}</dd></div>
+    <div><dt>Duration</dt><dd>{{ '%.2f'|format(video.duration_sec or 0) }} seconds</dd></div>
+    {% endif %}
+    <div><dt>Path</dt><dd><code>{{ video.path }}</code></dd></div>
+  </dl>
+</div>
+
+{% if not is_audio %}
+<script>
+(function () {
+  "use strict";
+  var root = document.querySelector(".replay[data-clip-url]");
+  if (!root) return;
+  var image = document.getElementById("replay-frame");
+  var toggle = root.querySelector('[data-replay="toggle"]');
+  var status = root.querySelector("[data-replay-status]");
+  var frames = [];
+  var timer = null;
+  var position = 0;
+  function show(index) {
+    if (!frames.length) return;
+    position = (index + frames.length) % frames.length;
+    image.src = frames[position].url;
+    if (status) status.textContent = "frame " + (position + 1) + " / " + frames.length;
+  }
+  function stop() {
+    if (timer) { clearInterval(timer); timer = null; }
+    if (toggle) toggle.textContent = "Play";
+  }
+  function play() {
+    stop();
+    if (!frames.length) return;
+    var fps = 5;
+    var interval = Math.max(80, 1000 / fps);
+    timer = setInterval(function () { show(position + 1); }, interval);
+    if (toggle) toggle.textContent = "Pause";
+  }
+  fetch(root.dataset.clipUrl, { credentials: "same-origin" })
+    .then(function (response) { return response.ok ? response.json() : null; })
+    .then(function (data) {
+      if (!data || !data.frames || !data.frames.length) return;
+      frames = data.frames;
+      frames.forEach(function (frame) { var img = new Image(); img.src = frame.url; });
+      show(0);
+      if (status) status.textContent = frames.length + " frames";
+    })
+    .catch(function () {});
+  if (toggle) {
+    toggle.addEventListener("click", function () {
+      if (timer) { stop(); } else { play(); }
+    });
+  }
+  image.addEventListener("click", function () {
+    if (timer) { stop(); } else { play(); }
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

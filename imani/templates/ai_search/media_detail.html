@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Match Details{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Match Details</h1>
+    <p class="muted">{{ media_type|title }} from {{ media.camera_name }} captured {{ media.captured_at }}</p>
+  </div>
+  <div class="head-actions">
+    <a class="btn btn-ghost" href="{{ url_for('ai_search.index') }}">Back to search</a>
+    <a class="btn btn-ghost" href="{{ item.view_url }}">Open {{ 'recording' if media_type == 'video' else 'photo' }}</a>
+  </div>
+</div>
+
+<div class="card">
+  {% if media_type == 'snapshot' %}
+  <img src="{{ url_for('snapshots.image', snapshot_id=media.id) }}" alt="Matched snapshot" style="max-width:100%;border-radius:8px;">
+  {% else %}
+  <a class="btn btn-primary" href="{{ url_for('videos.detail', video_id=media.id) }}">Open recording</a>
+  {% endif %}
+
+  <dl class="detail-list" style="margin-top:1rem;">
+    <div><dt>Camera</dt><dd>{{ media.camera_name }}</dd></div>
+    <div><dt>Timestamp</dt><dd>{{ media.captured_at }}</dd></div>
+    <div><dt>Source</dt><dd>{{ media.source_type }}</dd></div>
+    {% if media_type == 'video' %}
+    <div><dt>Kind</dt><dd>{{ media.kind }}</dd></div>
+    {% endif %}
+    {% if item.description %}
+    <div><dt>Description</dt><dd>{{ item.description }}</dd></div>
+    {% endif %}
+  </dl>
+
+  {% if item.features %}
+  <h2 style="margin-top:1rem;">Measured features</h2>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;">
+    {% for swatch in item.features.dominant %}
+    <span style="display:inline-flex;align-items:center;gap:6px;font-size:0.8rem;">
+      <span style="width:20px;height:20px;border-radius:4px;border:1px solid rgba(255,255,255,.35);background:{{ swatch.hex }};"></span>
+      {{ swatch.hex }} ({{ (swatch.ratio * 100)|round(0)|int }}%)
+    </span>
+    {% endfor %}
+  </div>
+  <p class="muted small" style="margin-top:0.5rem;">Brightness {{ (item.features.brightness * 100)|round(0)|int }}% · {{ item.features.width }}×{{ item.features.height }}</p>
+  {% endif %}
+</div>
+{% endblock %}

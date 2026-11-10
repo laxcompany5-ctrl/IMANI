@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Pair {{ camera.name }} with a phone{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>📱 Pair {{ camera.name }} with a phone</h1>
+    <p class="muted">Scan this code with a phone on the same network. The phone opens a capture page and streams its camera straight into IMANI.</p>
+  </div>
+  <div class="head-actions">
+    <a class="btn btn-ghost" href="{{ url_for('cameras.detail', camera_id=camera.id) }}">Back to camera</a>
+    <a class="btn btn-ghost" href="{{ url_for('cameras.index') }}">All cameras</a>
+  </div>
+</div>
+
+<div class="card" style="text-align:center;">
+  <img src="{{ url_for('cameras.qr_png', camera_id=camera.id) }}" alt="QR code to pair {{ camera.name }}" width="320" height="320" style="border-radius:12px;background:#fff;padding:8px;">
+  <p class="muted" style="margin-top:0.75rem;">Or open this link on the phone:</p>
+  <p><code style="word-break:break-all;">{{ scan_url }}</code></p>
+  <p class="muted small">The link is signed for this camera and expires after {{ (config.QR_TOKEN_MAX_AGE / 86400)|int }} days. Reload this page to get a fresh code.</p>
+</div>
+
+<div class="card" style="margin-top:1rem;">
+  <h2>What happens after scanning</h2>
+  <ol>
+    <li>The phone opens the capture page for <strong>{{ camera.name }}</strong> — no sign-in needed.</li>
+    <li>Tap <strong>Start camera</strong> and allow camera (and microphone, if offered) access.</li>
+    <li>Frames are posted to IMANI at about 2 frames per second; audio is uploaded in 10-second slices.</li>
+    <li>Snapshots save automatically every {{ config.SNAPSHOT_INTERVAL_SECONDS|int }} seconds and video is recorded in {{ config.VIDEO_SEGMENT_SECONDS|int }} second segments.</li>
+  </ol>
+  <p class="muted small">Both devices must be on the same network and port {{ request.host.split(':')[-1] if ':' in request.host else '80' }} must be reachable through the firewall.</p>
+</div>
+{% endblock %}

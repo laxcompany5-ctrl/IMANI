@@ -226,26 +226,61 @@ class Monitor:
     def _run(self) -> None:
         try:
             self._set_state("connecting", None)
+            alg = getattr(self, 'algorithm', {}) or {}
             config = AgentConfig(
                 camera=self.camera["name"],
                 source=self.camera["source_url"] or "demo",
-                min_interval_s=MIN_INTERVAL,
-                confirm_hits=CONFIRM_HITS,
+                min_interval_s=float(alg.get("min_interval_s", MIN_INTERVAL)),
+                confirm_hits=int(alg.get("confirm_hits", CONFIRM_HITS)),
+                iou_threshold=float(alg.get("iou_threshold", 0.3)),
+                every_n_frames=int(alg.get("every_n_frames", 5)),
+                face=bool(alg.get("face", False)),
             )
+            try:
+                from agent.traits import Calibration
+                config = config.__class__(
+                    **{**config.__dict__, 'calibration': Calibration(
+                        camera_height_cm=float(alg.get("camera_height_cm", 250)),
+                        principal_y=float(alg.get("principal_y", 360)),
+                    )}
+                )
+            except Exception:
+                pass
             client = _LocalIngest(self.app, on_result=self._on_capture)
-            frames = frame_source(
-                self.camera, self._stop,
-                on_frame=self._on_frame, on_idle=self._finalize_pending,
-            )
+            if getattr(self, '_use_phone_source', False):
+                frames = self._phone_frame_source()
+            else:
+                frames = frame_source(
+                    self.camera, self._stop,
+                    on_frame=self._on_frame, on_idle=self._finalize_pending,
+                )
             process(config, frames, client, emit=lambda _payload: None)
-            # Only reachable when the source ended on its own (a finished file,
-            # a closed stream, or a stop request).
             self._set_state("stopped", None)
-        except Exception as exc:  # a dead stream must not take the server down
+        except Exception as exc:
             self._set_state("error", str(exc))
         finally:
             self._finalize_pending()
             self._flush(force=True)
+
+    def _phone_frame_source(self):
+        """Yield frames pushed from phone/browser capture."""
+        import time as _time
+        from agent.traits import Detection, Box
+        last_emit = 0
+        while not self._stop.is_set():
+            if self._phone_frames:
+                ts, jpeg = self._phone_frames.popleft()
+                self._on_frame([], jpeg)
+                # Create a synthetic detection for tracking if none detected
+                # (phone source relies on agent to process; we pass empty detections
+                # but attach jpeg for archive - actual detection happens in agent)
+                yield _time.time(), []
+                last_emit = _time.time()
+            else:
+                if _time.time() - last_emit > 5:
+                    self._set_state("error", "Waiting for phone frames - open the capture page on your phone")
+                    last_emit = _time.time()
+                _time.sleep(0.1)
 
     def _set_state(self, status: str, error: str | None) -> None:
         with self._lock:
@@ -378,7 +413,12 @@ class SurveillanceManager:
         """A human-readable reason this camera cannot be monitored, if any."""
         if _ENGINE_ERROR is not None:
             return f"The capture engine is unavailable: {_ENGINE_ERROR}"
-        if (camera["source_type"] or "rtsp") != "demo":
+        source_type = camera["source_type"] or "rtsp"
+        if source_type in ("demo", "phone"):
+            # Demo is synthetic and phone frames arrive over HTTP, so neither
+            # needs OpenCV on the server.
+            return None
+        if source_type:
             try:
                 from agent import vision
 
@@ -402,3 +442,182 @@ def init_app(app) -> None:
 def get_manager() -> SurveillanceManager:
     """The manager for the current application."""
     return current_app.extensions["surveillance"]
+
+
+# --- Bit 12/13 extensions -------------------------------------------------
+# Per-camera algorithm settings, phone frame injection, automatic snapshots
+# and continuous video segments. These wrap the methods above rather than
+# editing them, so the core monitor stays small and the earlier behaviour is
+# unchanged when the new settings are absent.
+import json as _json
+
+_orig_monitor_init = Monitor.__init__
+
+
+def _cam(camera, key, default=None):
+    """Read a key from a sqlite3.Row or a dict."""
+    try:
+        return camera[key]
+    except (KeyError, IndexError, TypeError):
+        return default
+
+
+def _monitor_init_patched(self, app, camera):
+    _orig_monitor_init(self, app, camera)
+    # Load per-camera algorithm settings (Bit 12).
+    self.algorithm = {}
+    try:
+        raw = _cam(camera, "algorithm_json")
+        if raw:
+            self.algorithm = _json.loads(raw) or {}
+    except Exception:
+        self.algorithm = {}
+    self._phone_frames = deque(maxlen=30)
+    self._use_phone_source = (_cam(camera, "source_type") == "phone")
+    # Frames since the current recording segment began (Bit 13).
+    self._segment_frames: deque = deque(maxlen=1200)
+    self._segment_started: float | None = None
+    self._last_auto_snapshot = 0.0
+
+
+def _monitor_start_patched(self):
+    if self.is_running:
+        return
+    self._stop.clear()
+    self._thread = threading.Thread(
+        target=self._run,
+        name=f"imani-camera-{self.camera_id}",
+        daemon=True,
+    )
+    self._thread.start()
+
+
+def push_frame(self, jpeg):
+    """Push a frame from phone/browser capture."""
+    if jpeg:
+        self._phone_frames.append((time.time(), jpeg))
+
+
+Monitor.__init__ = _monitor_init_patched
+Monitor.start = _monitor_start_patched
+Monitor.push_frame = push_frame
+
+
+def _save_auto_snapshot(self) -> None:
+    """Persist the current frame, with measured features for AI search."""
+    from .models import CameraSnapshotRepository
+
+    jpeg = self._latest_jpeg
+    if not jpeg:
+        return
+    with self.app.app_context():
+        result = media.save_snapshot(
+            self.camera["name"], jpeg,
+            camera_id=self.camera_id,
+            source_type=_cam(self.camera, "source_type"),
+        )
+        if not result:
+            return
+        CameraSnapshotRepository.create({
+            "camera_id": self.camera_id,
+            "camera_name": self.camera["name"],
+            "filename": result["filename"],
+            "path": result["path"],
+            "source_type": _cam(self.camera, "source_type"),
+            "captured_at": _now(),
+            "features_json": result.get("features_json"),
+        })
+
+
+def _write_segment(self) -> None:
+    """Flush the frames collected since the last segment to disk."""
+    from .models import CameraVideoRepository
+
+    frames = list(self._segment_frames)
+    self._segment_frames.clear()
+    self._segment_started = None
+    if len(frames) < 2:
+        return
+    if not self.app.config.get("VIDEO_SEGMENT_ENABLED", True):
+        return
+    with self.app.app_context():
+        result = media.save_video_recording(
+            self.camera["name"], frames,
+            camera_id=self.camera_id,
+            source_type=_cam(self.camera, "source_type"),
+        )
+        if not result:
+            return
+        CameraVideoRepository.create({
+            "camera_id": self.camera_id,
+            "camera_name": self.camera["name"],
+            "filename": result["filename"],
+            "path": result["path"],
+            "source_type": _cam(self.camera, "source_type"),
+            "duration_sec": result["duration_sec"],
+            "frame_count": result["frame_count"],
+            "size_bytes": result["size_bytes"],
+            "started_at": result["manifest"].get("started_at"),
+            "ended_at": result["manifest"].get("ended_at"),
+            "captured_at": _now(),
+            "kind": "auto",
+            "mime_type": "image/jpeg",
+            "features_json": result.get("features_json"),
+        })
+
+
+def _record_frame(self, jpeg: bytes | None) -> None:
+    """Keep a frame for the current continuous recording segment."""
+    if not jpeg or not self.app.config.get("VIDEO_SEGMENT_ENABLED", True):
+        return
+    if self._segment_started is None:
+        self._segment_started = time.time()
+    self._segment_frames.append((time.time(), jpeg))
+
+
+# Wrap _on_frame so every displayed frame is also a recording frame (Bit 13).
+_orig_on_frame = Monitor._on_frame
+
+
+def _on_frame_recording(self, detections, jpeg):
+    result = _orig_on_frame(self, detections, jpeg)
+    try:
+        _record_frame(self, jpeg)
+    except Exception:  # pragma: no cover - recording must never break capture
+        pass
+    return result
+
+
+Monitor._on_frame = _on_frame_recording
+
+
+# Wrap _flush: throttle snapshots and close recording segments on a schedule,
+# and flush the last partial segment when the monitor stops.
+_orig_flush = Monitor._flush
+
+
+def _flush_with_snapshot(self, force=False):
+    result = _orig_flush(self, force)
+    try:
+        now = time.monotonic()
+        interval = float(self.app.config.get("SNAPSHOT_INTERVAL_SECONDS", 30))
+        due = (now - self._last_auto_snapshot) >= interval
+        if (due or force) and self._latest_jpeg:
+            if force and self._last_auto_snapshot:
+                pass  # already captured this run; don't duplicate on stop
+            else:
+                self._last_auto_snapshot = now
+                _save_auto_snapshot(self)
+    except Exception:  # pragma: no cover - best effort
+        pass
+    try:
+        seconds = float(self.app.config.get("VIDEO_SEGMENT_SECONDS", 20))
+        started = self._segment_started
+        if force or (started is not None and (time.time() - started) >= seconds):
+            _write_segment(self)
+    except Exception:  # pragma: no cover - best effort
+        pass
+    return result
+
+
+Monitor._flush = _flush_with_snapshot

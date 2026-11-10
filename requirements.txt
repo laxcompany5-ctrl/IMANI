@@ -3,3 +3,7 @@ Werkzeug==3.1.8
 python-dotenv==1.2.1
 gunicorn==23.0.0
 pytest==9.1.1
+# Media: demo frames, snapshots/videos, colour features, pairing QR codes.
+Pillow>=10.0
+numpy>=1.24
+qrcode[pil]>=7.4

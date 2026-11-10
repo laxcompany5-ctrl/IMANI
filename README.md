@@ -53,6 +53,44 @@ A security-analyst web app built in small, working increments ("bits").
 > disk with the footage around it — a still and a short clip — plus its
 > timestamp, so an analyst can review what a camera saw long after the moment
 > passed. Browse, filter, replay and prune from `/archive`.
+>
+> **Bit 12 — Device connectivity:** connect CCTV, DVR/NVR and IP cameras with
+> vendor URL templates, add phone/browser cameras, organise devices into
+> groups/zones, tune the per-camera algorithm, and test a connection before
+> saving. Snapshots are captured automatically while a camera is monitored and
+> collected in a review gallery.
+>
+> **Bit 13 — Pairing, continuous recording & feature search:** every camera has
+> a signed QR code that pairs a phone in one scan (no sign-in needed on the
+> phone). While recording, IMANI saves a snapshot every 30s, writes continuous
+> 20s video segments, and stores phone microphone audio alongside the footage.
+> Each frame's colours and histogram are measured once and saved, so an analyst
+> can type a description ("man in a red jacket") or upload a photo and get a
+> ranked list of saved photos/recordings with a real match percentage.
+
+---
+
+## 0a. What IMANI is
+
+IMANI (Swahili for *faith*) is a self-hosted security-intelligence console for
+small security teams. It brings three jobs into one purple-themed web app:
+
+1. **Know who is who.** A register of individuals, each with physical traits
+   (height, build, posture, gait, optional face template). A weighted matching
+   engine compares a new observation with the register and reports a confidence
+   band, so a returning person is recognised instead of duplicated.
+2. **Watch the cameras.** Connect RTSP/HTTP CCTV streams, a DVR/NVR channel, a
+   webcam, a video file, a phone browser camera, or the built-in synthetic demo
+   source. Monitor threads read and analyse frames in-app, save snapshots,
+   record continuous video segments, and index everything with timestamps.
+3. **Find what was seen.** Search every saved photo and recording by written
+   description or by uploading a photo. Colour makeup and image histograms are
+   measured with Pillow + NumPy, so the percentage shown is computed from the
+   pixels and is reproducible.
+
+It is deliberately dependency-light: Python 3 + Flask + SQLite + Jinja2 with no
+JavaScript build step, no ORM and no cloud services. Real stream decoding needs
+OpenCV on the server; demo, phone and stored-media features work without it.
 
 ---
 
@@ -62,6 +100,9 @@ A security-analyst web app built in small, working increments ("bits").
 - **SQLite** via the standard-library `sqlite3` (no ORM)
 - **Werkzeug** scrypt password hashing
 - **Google OAuth 2.0** via the standard library `urllib` (no OAuth package)
+- **qrcode** for camera pairing codes, **Pillow + NumPy** for feature extraction
+  and demo-frame rendering
+- **Optional OpenCV** (`opencv-python-headless`) for real RTSP/HTTP/webcam decoding
 - **gunicorn + nginx** for production deployment (see `deploy/DEPLOY.md`)
 - Vanilla CSS + a little progressive-enhancement JS — no build step
 
@@ -427,6 +468,82 @@ synthetic frames, so the whole archive works with no hardware.
 
 ---
 
+## 3f. Cameras, recording & feature search (Bits 12–13)
+
+### Connecting a device
+
+| Source | How to connect | Notes |
+|--------|----------------|-------|
+| **RTSP CCTV / DVR / NVR** | `/cameras/new` → RTSP, choose a vendor template (Hikvision, Dahua, Axis, Reolink, Uniview, Amcrest, generic), fill IP/port/user/pass/channel, **Build URL**, **Test connection**, Save, Start | Needs OpenCV on the server to decode |
+| **HTTP / MJPEG** | `/cameras/new` → HTTP, paste the stream URL | Needs OpenCV |
+| **Phone / browser** | `/cameras/new` → Phone, Save, then open the camera's **QR pairing** page and scan it on the phone (or open `/cameras/<id>/capture` while signed in) | No OpenCV; frames arrive over HTTP |
+| **Webcam** | Source type `device`, URL `0` | Needs OpenCV |
+| **Video file** | Source type `file`, URL = path on the server | Needs OpenCV |
+| **Demo** | Source type `demo` | Synthetic walk; exercises the whole pipeline with no hardware |
+
+**QR pairing.** `/cameras/<id>/qr` shows a QR code generated with the `qrcode`
+package. The code contains a signed, camera-scoped URL (`itsdangerous`, salt
+`imani-camera-qr`) valid for `IMANI_QR_MAX_AGE` seconds (30 days). Scanning it
+opens a phone page that needs no IMANI sign-in and posts frames to
+`/cameras/scan/<token>/frame` and audio slices to `/cameras/scan/<token>/audio`.
+Those endpoints are CSRF-exempt because the token *is* the credential. The link
+uses the LAN IP automatically when the console is opened on `127.0.0.1`.
+
+### Recording while monitoring
+
+While a monitor thread is running:
+
+- **Snapshots** — one JPEG every `IMANI_SNAPSHOT_INTERVAL` seconds (default 30),
+  stored under `instance/snapshots/YYYY-MM-DD/<camera>/` and indexed in
+  `camera_snapshots`.
+- **Video** — continuous frame-sequence segments of
+  `IMANI_VIDEO_SEGMENT` seconds (default 20), under `instance/videos/…`,
+  indexed in `camera_videos` with `kind='auto'`. Manual saves use `kind='manual'`.
+- **Audio** — a phone capture page can record the microphone with the browser
+  `MediaRecorder` API; 10-second slices are stored under `instance/audio/…`
+  and indexed with `kind='audio'`, then playable at `/videos/<id>/audio`.
+- **Features** — every snapshot and video poster is measured (see below) and the
+  result is stored in `features_json` on the media row.
+
+Recording can be disabled with `IMANI_VIDEO_SEGMENT_ENABLED=0`; retention can
+be handled with the existing archive prune action or a cron job.
+
+### How the feature search works
+
+`imani/features.py` uses Pillow + NumPy and is fully deterministic:
+
+1. Downscale the frame to 48×48 and convert to HSV.
+2. Build a 108-bin hue/saturation/value histogram, normalised to sum to 1.
+3. Measure the fraction of the frame belonging to each named colour
+   (red, orange, yellow, green, cyan, blue, purple, pink, brown, black, white,
+   grey, beige), with synonyms such as maroon/navy/tan handled.
+4. Keep the dominant colour swatches (hex + share) for the UI.
+
+**Description search** parses the prompt for colour words and synonyms. The
+percentage is `40 + 60 × (0.8 × colour presence + 0.2 × keyword match)`, where
+colour presence is the measured share of the requested colour capped at 12% of
+the frame. If the prompt names no colour, the score is the keyword overlap with
+saved descriptions and camera metadata. **Photo search** compares the upload's
+108-bin histogram with each frame (60% cosine similarity + 40% histogram
+intersection), so identical colour makeup scores 100%.
+
+Results show the timestamp, camera, a real match percentage, colour swatches and
+links to the full photo or recording. Snapshots and recordings accept a written
+description from their gallery pages, which is also used by text search.
+
+| Endpoint | Who | What |
+|----------|-----|------|
+| `/cameras/<id>/qr` | signed-in | Show the pairing QR and link |
+| `/cameras/<id>/qr.png` | signed-in | PNG QR code |
+| `/cameras/scan/<token>` | no sign-in | Phone landing page |
+| `/cameras/scan/<token>/frame` | token | Receive a phone JPEG frame |
+| `/cameras/scan/<token>/audio` | token | Receive a phone audio slice |
+| `/snapshots/` | signed-in | Auto-captured photo gallery + descriptions |
+| `/videos/` | signed-in | Continuous/manual video + audio, filter by kind |
+| `/ai-search/` | signed-in | Description or photo search |
+
+---
+
 ## 4. Security measures
 
 | Area | Implementation |
@@ -471,14 +588,20 @@ imani-web/
 │   ├── oauth.py            # Google OAuth 2.0 / OIDC (stdlib only)
 │   ├── reports.py          # CSV + printable-report helpers
 │   ├── capture.py          # CCTV ingestion + re-identification (Bit 8)
-│   ├── surveillance.py     # monitor threads: read cameras in-app (Bit 10)
-│   ├── media.py            # footage written to disk and read back (Bit 11)
+│   ├── surveillance.py     # monitor threads: cameras, snapshots, segments (Bits 10/13)
+│   ├── media.py            # footage, snapshots, audio written to disk (Bits 11/13)
+│   ├── features.py         # colour/histogram features + prompt matching (Bit 13)
+│   ├── qr.py               # signed camera pairing tokens + QR PNG (Bit 13)
 │   ├── routes/
 │   │   ├── home.py         # /  (public landing page)
 │   │   ├── auth_routes.py  # login, signup, logout, /auth/google[/callback]
 │   │   ├── individuals.py  # /individuals  (search / insert / update / delete)
-│   │   ├── match.py        # /match  (run a probe, history, results)
-│   │   ├── cameras.py      # /cameras  (connect CCTV, monitor, live view)
+│   │   ├── match.py        # /match  (run a probe, history, results, algorithm)
+│   │   ├── cameras.py      # /cameras  (connect, monitor, QR, phone capture)
+│   │   ├── camera_groups.py# /camera-groups  (zones/groups)
+│   │   ├── snapshots.py    # /snapshots  (auto-captured photos + descriptions)
+│   │   ├── videos.py       # /videos  (continuous video + phone audio)
+│   │   ├── ai_search.py    # /ai-search  (description and photo search)
 │   │   ├── archive.py      # /archive  (recorded footage, replay, retention)
 │   │   ├── sightings.py    # /sightings  (capture feed, review, actions)
 │   │   ├── ingest.py       # /ingest/capture  (device API, X-API-Key)
@@ -549,4 +672,6 @@ is in `deploy/DEPLOY.md`.
 - **Bit 9 (done)** — Capture agent: standalone camera-side program (OpenCV detection, IoU tracking, trait extraction, resilient delivery) that feeds `/ingest/capture`.
 - **Bit 10 (done)** — CCTV connection & surveillance: camera registry, in-app monitor threads, live MJPEG view, per-camera status.
 - **Bit 11 (done)** — Capture archive: footage written to disk, replayed in the browser, filterable and pruned by retention.
-- **Bit 12+** — Deployment hardening and next increments.
+- **Bit 12 (done)** — Device connectivity: DVR/NVR URL templates, phone cameras, groups/zones, per-camera algorithm settings, connection tests, snapshot gallery.
+- **Bit 13 (done)** — QR pairing, continuous snapshot/video/audio recording, measured colour/histogram features, description and photo search with real match percentages.
+- **Bit 14+** — Deployment hardening, live RTSP decode with OpenCV/ffmpeg, face-template extraction, retention policies for snapshots/recordings.

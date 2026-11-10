@@ -207,9 +207,12 @@ CREATE TABLE IF NOT EXISTS cameras (
     name            TEXT    NOT NULL UNIQUE,
     location        TEXT,
     source_type     TEXT    NOT NULL DEFAULT 'rtsp'
-                    CHECK (source_type IN ('rtsp','http','file','device','demo')),
+                    CHECK (source_type IN ('rtsp','http','file','device','demo','phone')),
     source_url      TEXT    NOT NULL,
     enabled         INTEGER NOT NULL DEFAULT 1,
+    -- Bit 12: optional group/zone and per-camera algorithm overrides.
+    group_id        INTEGER REFERENCES camera_groups(id) ON DELETE SET NULL,
+    algorithm_json  TEXT,
 
     -- What the monitor is doing right now. "unavailable" means the camera is
     -- configured but this server cannot read it (OpenCV missing, etc.).
@@ -244,3 +247,90 @@ CREATE TABLE IF NOT EXISTS capture_media (
 
 CREATE INDEX IF NOT EXISTS idx_capture_media_sighting ON capture_media(sighting_id);
 CREATE INDEX IF NOT EXISTS idx_capture_media_kind ON capture_media(kind);
+
+-- Bit 12 — Camera groups/zones (Bit 12)
+CREATE TABLE IF NOT EXISTS camera_groups (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT    NOT NULL UNIQUE,
+    description TEXT,
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Bit 12 — extend cameras with groups and per-camera algorithm settings
+-- These columns are added via migrations; CREATE TABLE won't alter existing.
+-- (Schema evolution handled by init/migrations in practice; we also update
+-- the table definition expectation via app logic.)
+
+-- Bit 12b — Auto-captured snapshots from CCTV/phone/camera video feeds
+CREATE TABLE IF NOT EXISTS camera_snapshots (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    camera_id   INTEGER REFERENCES cameras(id) ON DELETE SET NULL,
+    camera_name TEXT,
+    filename    TEXT    NOT NULL,
+    path        TEXT    NOT NULL,
+    source_type TEXT,
+    captured_at TEXT    NOT NULL DEFAULT (datetime('now')),
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+    -- Bit 13: measured image features + a human annotation used by AI search.
+    features_json TEXT,
+    description TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_camera_snapshots_camera ON camera_snapshots(camera_id);
+CREATE INDEX IF NOT EXISTS idx_camera_snapshots_captured ON camera_snapshots(captured_at DESC);
+
+-- Bit 12c — Auto-saved video recordings from CCTV/phone/camera feeds for reference
+CREATE TABLE IF NOT EXISTS camera_videos (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    camera_id   INTEGER REFERENCES cameras(id) ON DELETE SET NULL,
+    camera_name TEXT,
+    filename    TEXT    NOT NULL,
+    path        TEXT    NOT NULL,
+    source_type TEXT,
+    duration_sec REAL,
+    frame_count INTEGER,
+    size_bytes  INTEGER,
+    started_at  TEXT,
+    ended_at    TEXT,
+    captured_at TEXT    NOT NULL DEFAULT (datetime('now')),
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+    -- Bit 13: 'manual' (saved from buffer), 'auto' (continuous segment),
+    -- 'audio' (phone microphone). Features + annotation drive AI search.
+    kind        TEXT    NOT NULL DEFAULT 'manual',
+    mime_type   TEXT,
+    features_json TEXT,
+    description TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_camera_videos_camera ON camera_videos(camera_id);
+CREATE INDEX IF NOT EXISTS idx_camera_videos_captured ON camera_videos(captured_at DESC);
+
+-- Bit 12d — AI Search: descriptions and features for all media
+CREATE TABLE IF NOT EXISTS media_descriptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    media_type TEXT NOT NULL CHECK(media_type IN ('snapshot','video','archive')),
+    media_id INTEGER NOT NULL,
+    description TEXT,
+    features_json TEXT,
+    tags TEXT,
+    uploaded_by TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_media_desc_type_id ON media_descriptions(media_type, media_id);
+CREATE TABLE IF NOT EXISTS media_search_index (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    media_type TEXT NOT NULL,
+    media_id INTEGER NOT NULL,
+    camera_name TEXT,
+    camera_id INTEGER,
+    timestamp TEXT,
+    file_path TEXT,
+    thumbnail_path TEXT,
+    description TEXT,
+    extracted_text TEXT,
+    features_hash TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_media_search_ts ON media_search_index(timestamp DESC);

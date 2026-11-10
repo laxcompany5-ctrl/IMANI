@@ -46,6 +46,10 @@ def create_app(config_object: type | None = None) -> Flask:
     # --- Blueprints ---------------------------------------------------
     from .routes import (
         admin,
+        ai_search,
+        videos,
+        snapshots,
+        camera_groups,
         archive,
         auth_routes,
         cameras,
@@ -65,6 +69,10 @@ def create_app(config_object: type | None = None) -> Flask:
     app.register_blueprint(sightings.bp)
     app.register_blueprint(cameras.bp)
     app.register_blueprint(archive.bp)
+    app.register_blueprint(camera_groups.bp)
+    app.register_blueprint(snapshots.bp)
+    app.register_blueprint(videos.bp)
+    app.register_blueprint(ai_search.bp)
     app.register_blueprint(ingest.bp)
     app.register_blueprint(reports.bp)
     app.register_blueprint(admin.bp)

@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}AI Search - Photos & Videos{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>🔍 AI Feature Search</h1>
+    <p class="muted">Describe a person or object, or upload a photo. IMANI compares the prompt with the colours and features measured from every saved photo and recording.</p>
+  </div>
+  <div class="head-actions">
+    <a class="btn btn-ghost" href="{{ url_for('snapshots.index') }}">Snapshots</a>
+    <a class="btn btn-ghost" href="{{ url_for('videos.index') }}">Recordings</a>
+    <a class="btn btn-ghost" href="{{ url_for('cameras.index') }}">Cameras</a>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Search</h2>
+  <form method="post" action="{{ url_for('ai_search.index') }}" enctype="multipart/form-data">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+
+    <div class="field" style="margin-bottom:1rem;">
+      <label>Search with</label>
+      <select name="search_type" id="search_type" onchange="toggleSearch()">
+        <option value="description" {{ 'selected' if search_type == 'description' }}>A written description / features</option>
+        <option value="image" {{ 'selected' if search_type == 'image' }}>An uploaded photo</option>
+      </select>
+    </div>
+
+    <div id="desc_search" style="display: {{ 'block' if search_type == 'description' else 'none' }};">
+      <div class="field">
+        <label for="query">Describe the person or object</label>
+        <textarea id="query" name="query" rows="3" placeholder="e.g. tall man wearing a red jacket and black trousers near the gate">{{ query }}</textarea>
+        <span class="hint">Colour words (red, blue, black, white, navy, maroon…) are compared with the measured colours of every frame. Other words are matched against your saved descriptions and camera names.</span>
+      </div>
+    </div>
+
+    <div id="img_search" style="display: {{ 'block' if search_type == 'image' else 'none' }};">
+      <div class="field">
+        <label for="photo">Upload a photo showing physical features</label>
+        <input type="file" id="photo" name="photo" accept="image/*">
+        <span class="hint">The photo's colour histogram is compared with every saved frame; the closest colour/feature matches are shown first.</span>
+      </div>
+      {% if upload_url %}
+      <div style="margin-top:0.5rem;">
+        <img src="{{ upload_url }}" alt="Uploaded search photo" style="max-width:220px;border-radius:8px;">
+      </div>
+      {% endif %}
+    </div>
+
+    <button class="btn btn-primary" type="submit">🔍 Search saved photos &amp; videos</button>
+  </form>
+</div>
+
+<script>
+function toggleSearch() {
+  var type = document.getElementById('search_type').value;
+  document.getElementById('desc_search').style.display = type === 'description' ? 'block' : 'none';
+  document.getElementById('img_search').style.display = type === 'image' ? 'block' : 'none';
+}
+</script>
+
+{% if results %}
+<div class="card" style="margin-top:1.5rem;">
+  <h2>{{ results|length }} match{{ 'es' if results|length != 1 else '' }} found</h2>
+  <p class="muted">
+    Sorted by measured match. {% if search_type == 'image' %}Score compares colour/feature histograms with your upload.{% else %}Score compares the prompt's colours and keywords with each frame.{% endif %}
+  </p>
+
+  <div class="archive-grid" style="margin-top:1rem;">
+    {% for r in results %}
+    <div class="card archive-card">
+      <a href="{{ r.view_url }}">
+        <div class="archive-thumb">
+          {% if r.thumb_url %}
+          <img src="{{ r.thumb_url }}" alt="Match from {{ r.camera_name }}" loading="lazy" onerror="this.style.display='none'">
+          {% else %}
+          <div style="padding:2rem;text-align:center;font-size:2rem;">🎙️</div>
+          {% endif %}
+          <span class="archive-stamp">{{ r.timestamp }}</span>
+        </div>
+      </a>
+      <div class="archive-meta">
+        <div class="archive-title">
+          <strong>{{ r.camera_name or 'Unknown' }}</strong>
+          <span class="pill {{ 'pill-active' if r.score >= 70 }}">{{ r.score }}% match</span>
+        </div>
+        <div class="muted small">
+          {% if r.type == 'snapshot' %}📸 Photo{% elif r.is_audio %}🎙️ Audio{% else %}🎬 Recording ({{ r.kind }}){% endif %}
+        </div>
+        {% if r.description %}
+        <div class="small" style="color: var(--primary);">{{ r.description }}</div>
+        {% endif %}
+        <div class="small" style="display:flex;gap:4px;align-items:center;margin-top:4px;">
+          {% for swatch in r.swatches %}
+          <span title="{{ swatch.ratio }}" style="display:inline-block;width:16px;height:16px;border-radius:4px;border:1px solid rgba(255,255,255,.35);background:{{ swatch.hex }};"></span>
+          {% endfor %}
+          {% if r.detail.get('colour_presence') is not none %}
+          <span class="muted">colour presence {{ (r.detail.get('colour_presence') * 100)|round(0)|int }}%</span>
+          {% endif %}
+        </div>
+        <a class="btn btn-small" href="{{ r.view_url }}" style="margin-top:0.4rem;">Open</a>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% elif searched %}
+<div class="card" style="margin-top:1.5rem;">
+  <div class="empty">
+    <p class="empty-mark">🔍</p>
+    <h2>No matches found</h2>
+    <p class="muted">Try a colour the footage actually contains (for example “red jacket”), or add descriptions to snapshots and recordings so text search can find them.</p>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

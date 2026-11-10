@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Video & Audio Recordings{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>🎬 Auto-Saved Video &amp; Audio Recordings</h1>
+    <p class="muted">Footage is recorded continuously in {{ config.VIDEO_SEGMENT_SECONDS|int }}s segments while a camera monitors. Phone microphones add audio recordings. Everything is timestamped for review.</p>
+  </div>
+  <div class="head-actions">
+    {% if current_user.role in ('analyst','admin') %}
+    <form method="post" action="{{ url_for('videos.record_all') }}" class="inline-form">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-primary" type="submit">Save recording from all active cameras</button>
+    </form>
+    {% endif %}
+    <a class="btn btn-ghost" href="{{ url_for('snapshots.index') }}">Snapshots</a>
+    <a class="btn btn-ghost" href="{{ url_for('ai_search.index') }}">AI Search</a>
+    <a class="btn btn-ghost" href="{{ url_for('cameras.index') }}">Cameras</a>
+  </div>
+</div>
+
+<form class="card searchbar" method="get" action="{{ url_for('videos.index') }}" style="margin-bottom:1rem;">
+  <select name="camera_id">
+    <option value="">All cameras</option>
+    {% for cam in cameras %}
+    <option value="{{ cam.id }}" {{ 'selected' if camera_id == cam.id }}>{{ cam.name }} ({{ cam.source_type }})</option>
+    {% endfor %}
+  </select>
+  <select name="kind">
+    <option value="">All media</option>
+    <option value="auto" {{ 'selected' if kind == 'auto' }}>Auto recordings</option>
+    <option value="manual" {{ 'selected' if kind == 'manual' }}>Manual recordings</option>
+    <option value="audio" {{ 'selected' if kind == 'audio' }}>Audio</option>
+  </select>
+  <button class="btn btn-primary" type="submit">Filter</button>
+  <a class="btn btn-ghost" href="{{ url_for('videos.index') }}">Reset</a>
+  <span class="muted small" style="margin-left:auto;">{{ total }} recording{{ 's' if total != 1 else '' }}</span>
+</form>
+
+{% if videos %}
+<div class="archive-grid">
+  {% for vid in videos %}
+  <div class="card archive-card">
+    <a href="{{ url_for('videos.detail', video_id=vid.id) }}">
+      <div class="archive-thumb">
+        {% if vid.kind == 'audio' %}
+        <div style="padding:2rem;text-align:center;font-size:2rem;">🎙️</div>
+        {% else %}
+        <img src="{{ url_for('videos.poster', video_id=vid.id) }}" alt="Recording from {{ vid.camera_name }}" loading="lazy" onerror="this.style.display='none'">
+        {% endif %}
+        <span class="archive-stamp">{{ vid.captured_at }}{% if vid.kind != 'audio' %} • {{ vid.frame_count or 0 }} frames • {{ '%.1f'|format(vid.duration_sec or 0) }}s{% else %} • AUDIO{% endif %}</span>
+      </div>
+    </a>
+    <div class="archive-meta">
+      <div class="archive-title">
+        <strong>{{ vid.camera_name or 'Unknown' }}</strong>
+        <span class="pill {{ 'pill-active' if vid.kind == 'auto' }}">{{ vid.kind or 'manual' }}</span>
+      </div>
+      {% if vid.description %}
+      <div class="small" style="color: var(--primary);">{{ vid.description }}</div>
+      {% endif %}
+      <div class="muted small">{{ vid.filename }}</div>
+      <form method="post" action="{{ url_for('videos.describe', video_id=vid.id) }}" style="margin-top:0.4rem;">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <input type="text" name="description" value="{{ vid.description or '' }}" placeholder="Describe this recording" style="width:100%;">
+        <button class="btn btn-small" type="submit" style="margin-top:0.3rem;">Save description</button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{% if pages > 1 %}
+<div class="pager">
+  {% if page > 1 %}
+  <a class="btn btn-small" href="{{ url_for('videos.index', page=page-1, camera_id=camera_id, kind=kind) }}">Previous</a>
+  {% endif %}
+  <span class="muted small">Page {{ page }} of {{ pages }}</span>
+  {% if page < pages %}
+  <a class="btn btn-small" href="{{ url_for('videos.index', page=page+1, camera_id=camera_id, kind=kind) }}">Next</a>
+  {% endif %}
+</div>
+{% endif %}
+{% else %}
+<div class="card empty">
+  <p class="empty-mark">🎬</p>
+  <h2>No recordings saved yet</h2>
+  <p class="muted">Start monitoring a camera and IMANI records continuous {{ config.VIDEO_SEGMENT_SECONDS|int }}s segments automatically. A phone capture page can add audio too.</p>
+  <p><a class="btn btn-primary" href="{{ url_for('cameras.index') }}">Go to Cameras</a></p>
+</div>
+{% endif %}
+{% endblock %}

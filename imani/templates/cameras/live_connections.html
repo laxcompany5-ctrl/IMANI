@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Live Connected Devices{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>🔌 Live Connected Devices</h1>
+    <p class="muted">Real-time status of all CCTV, cameras, DVR/NVR, and phones connected and capturing.</p>
+  </div>
+  <div class="head-actions">
+    <a class="btn btn-ghost" href="{{ url_for('cameras.index') }}">All Cameras</a>
+    <a class="btn btn-primary" href="{{ url_for('cameras.create') }}">Connect New Device</a>
+  </div>
+</div>
+
+<div class="stat-grid">
+  <div class="card stat"><span class="stat-value">{{ cameras|length }}</span><span class="stat-label">Total Connected</span></div>
+  <div class="card stat"><span class="stat-value">{{ cameras|selectattr('running')|list|length }}</span><span class="stat-label">Actively Capturing</span></div>
+  <div class="card stat"><span class="stat-value">{{ cameras|selectattr('source_type','equalto','phone')|list|length }}</span><span class="stat-label">Phone Cameras</span></div>
+  <div class="card stat"><span class="stat-value">{{ cameras|selectattr('source_type','in',['rtsp','http'])|list|length }}</span><span class="stat-label">CCTV/IP Streams</span></div>
+</div>
+
+<div class="card" style="margin-top:1rem;">
+  <h2>Active Connections</h2>
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr><th>Device</th><th>Type</th><th>Zone/Group</th><th>Status</th><th>Connection</th><th>Frames</th><th>Captures</th><th>Last Activity</th><th>Actions</th></tr>
+      </thead>
+      <tbody>
+        {% for cam in cameras %}
+        <tr>
+          <td><strong><a href="{{ url_for('cameras.detail', camera_id=cam.id) }}">{{ cam.name }}</a></strong>{% if cam.location %}<div class="muted small">{{ cam.location }}</div>{% endif %}</td>
+          <td><span class="pill">{{ source_labels.get(cam.source_type, cam.source_type) }}</span></td>
+          <td>-</td>
+          <td>
+            {% if cam.running %}<span class="pill pill-active">● CAPTURING</span>
+            {% elif cam.live == 'unavailable' %}<span class="pill pill-pending">UNAVAILABLE</span>
+            {% elif cam.live == 'error' %}<span class="pill pill-danger">ERROR</span>
+            {% else %}<span class="pill">STOPPED</span>{% endif %}
+          </td>
+          <td class="muted small">{{ cam.source_url[:40] }}{% if cam.source_url|length > 40 %}...{% endif %}</td>
+          <td>{{ cam.frames_seen }}</td>
+          <td>{{ cam.captures }}</td>
+          <td class="muted small">{{ cam.last_frame_at or '—' }}</td>
+          <td>
+            <a class="btn btn-small" href="{{ url_for('cameras.detail', camera_id=cam.id) }}">Manage</a>
+            {% if cam.source_type == 'phone' and cam.running %}
+            <a class="btn btn-small btn-primary" href="{{ url_for('cameras.phone_capture', camera_id=cam.id) }}" target="_blank">Phone View</a>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card" style="margin-top:1rem;">
+  <h2>How Coordination Works</h2>
+  <ul>
+    <li><strong>Surveillance Manager</strong> - Coordinates all camera monitors, each running in its own thread</li>
+    <li><strong>Frame Processing</strong> - Agent/vision pipeline extracts traits (height, build, posture, gait) from frames</li>
+    <li><strong>Auto-Capture</strong> - Snapshots saved every ~30s from active feeds to <code>instance/snapshots/</code></li>
+    <li><strong>Video Recording</strong> - Frame buffers saved as reference videos to <code>instance/videos/</code></li>
+    <li><strong>Detection & Matching</strong> - Captures ingested to matching engine, scored against individual register with AI weights</li>
+    <li><strong>Archive</strong> - Detection-triggered clips saved with timestamps to <code>instance/media/</code></li>
+    <li><strong>AI Search</strong> - All media indexed and searchable by description or photo upload</li>
+  </ul>
+</div>
+{% endblock %}

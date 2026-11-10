@@ -272,3 +272,168 @@ def usage() -> dict:
             except OSError:
                 pass
     return {"files": files, "bytes": total}
+
+
+def snapshots_root() -> Path:
+    """Directory for auto-captured snapshots from CCTV/phone/camera feeds."""
+    path = Path(current_app.config["MEDIA_ROOT"]).parent / "snapshots"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def save_snapshot(camera_name: str | None, jpeg_data: bytes, camera_id: int | None = None, source_type: str | None = None) -> dict | None:
+    """Save a single frame snapshot from a video feed."""
+    if not jpeg_data:
+        return None
+    from datetime import datetime
+    import os
+    snap_root = snapshots_root()
+    date_dir = snap_root / datetime.now().strftime("%Y-%m-%d")
+    date_dir.mkdir(parents=True, exist_ok=True)
+    cam_dir = date_dir / _slug(camera_name, "camera")
+    cam_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%H%M%S_%f")[:-3]
+    filename = f"snapshot_{ts}.jpg"
+    filepath = cam_dir / filename
+    filepath.write_bytes(jpeg_data)
+    rel_path = filepath.relative_to(Path(current_app.config["MEDIA_ROOT"]).parent).as_posix()
+    from . import features
+    feat = features.extract_features(jpeg_data)
+    return {
+        "filename": filename,
+        "path": rel_path,
+        "full_path": str(filepath),
+        "camera_name": camera_name,
+        "camera_id": camera_id,
+        "source_type": source_type,
+        "features_json": json.dumps(feat) if feat else None,
+        "features": feat,
+    }
+
+
+def videos_root() -> Path:
+    """Directory for auto-saved video recordings from CCTV/phone/camera feeds for reference."""
+    path = Path(current_app.config["MEDIA_ROOT"]).parent / "videos"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def save_video_recording(camera_name: str | None, frames: list[tuple[float, bytes]], 
+                         camera_id: int | None = None, source_type: str | None = None,
+                         started_at: str | None = None) -> dict | None:
+    """Save a video recording as a frame sequence for reference."""
+    frames = [(stamp, data) for stamp, data in frames if data]
+    if not frames:
+        return None
+    from datetime import datetime
+    vid_root = videos_root()
+    date_dir = vid_root / datetime.now().strftime("%Y-%m-%d")
+    date_dir.mkdir(parents=True, exist_ok=True)
+    cam_dir = date_dir / _slug(camera_name, "camera")
+    cam_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    vid_dir = cam_dir / f"rec_{ts}"
+    vid_dir.mkdir(parents=True, exist_ok=True)
+    
+    manifest_frames = []
+    for index, (stamp, data) in enumerate(frames, start=1):
+        name = f"frame-{index:04d}.jpg"
+        (vid_dir / name).write_bytes(data)
+        manifest_frames.append({"index": index, "file": name, "ts": round(stamp, 3)})
+    
+    # Save poster/first frame as thumbnail
+    (vid_dir / "poster.jpg").write_bytes(frames[0][1])
+    
+    duration_sec = frames[-1][0] - frames[0][0] if len(frames) > 1 else 0
+    manifest = {
+        "camera": camera_name,
+        "camera_id": camera_id,
+        "source_type": source_type,
+        "started_at": started_at,
+        "ended_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "frame_count": len(frames),
+        "duration_sec": round(duration_sec, 2),
+        "frames": manifest_frames,
+    }
+    (vid_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
+    
+    # Calculate size
+    size_bytes = (
+        sum((vid_dir / item["file"]).stat().st_size for item in manifest_frames)
+        + (vid_dir / "poster.jpg").stat().st_size
+        + (vid_dir / "manifest.json").stat().st_size
+    )
+    
+    rel_path = vid_dir.relative_to(Path(current_app.config["MEDIA_ROOT"]).parent).as_posix()
+    from . import features
+    feat = features.extract_features(frames[0][1])
+    return {
+        "filename": f"rec_{ts}",
+        "path": rel_path,
+        "frame_count": len(frames),
+        "duration_sec": round(duration_sec, 2),
+        "size_bytes": size_bytes,
+        "manifest": manifest,
+        "features_json": json.dumps(feat) if feat else None,
+        "features": feat,
+    }
+
+
+def audio_root() -> Path:
+    """Directory for audio recorded alongside a phone camera feed."""
+    path = Path(current_app.config["MEDIA_ROOT"]).parent / "audio"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+AUDIO_EXTENSIONS = {
+    "audio/webm": "webm",
+    "audio/ogg": "ogg",
+    "audio/mp4": "m4a",
+    "audio/mpeg": "mp3",
+    "audio/wav": "wav",
+    "audio/x-wav": "wav",
+}
+
+
+def save_audio(camera_name: str | None, data: bytes, mime_type: str | None,
+               camera_id: int | None = None,
+               source_type: str | None = None) -> dict | None:
+    """Write one audio chunk from a phone microphone to disk.
+
+    Browsers record with :js:class:`MediaRecorder` in short slices; each slice
+    is stored as its own file and indexed as an ``audio`` recording so it can be
+    played back with the footage it belongs to.
+    """
+    if not data:
+        return None
+    mime = (mime_type or "").split(";")[0].strip() or "audio/webm"
+    # Browsers report an audio-only MediaRecorder stream as video/webm.
+    if mime == "video/webm":
+        mime = "audio/webm"
+    elif mime == "video/ogg":
+        mime = "audio/ogg"
+    elif mime == "video/mp4":
+        mime = "audio/mp4"
+    ext = AUDIO_EXTENSIONS.get(mime, "webm")
+    root_dir = audio_root()
+    date_dir = root_dir / datetime.now().strftime("%Y-%m-%d")
+    date_dir.mkdir(parents=True, exist_ok=True)
+    cam_dir = date_dir / _slug(camera_name, "camera")
+    cam_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%H%M%S_%f")[:-3]
+    filename = f"audio_{stamp}.{ext}"
+    filepath = cam_dir / filename
+    filepath.write_bytes(data)
+    rel_path = filepath.relative_to(
+        Path(current_app.config["MEDIA_ROOT"]).parent
+    ).as_posix()
+    return {
+        "filename": filename,
+        "path": rel_path,
+        "size_bytes": len(data),
+        "mime_type": mime,
+        "camera_id": camera_id,
+        "camera_name": camera_name,
+        "source_type": source_type,
+    }

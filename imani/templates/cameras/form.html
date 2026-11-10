@@ -1,17 +1,16 @@
 {% extends "base.html" %}
 {% block title %}{{ 'Edit camera' if camera_id else 'Connect camera' }}{% endblock %}
-
 {% block content %}
 <div class="page-head">
   <div>
     <h1>{{ 'Edit camera' if camera_id else 'Connect camera' }}</h1>
     <p class="muted">
-      Tell IMANI where to find the stream. Use <strong>demo</strong> to try the
-      capture pipeline with no hardware and no OpenCV.
+      Connect CCTV, IP cameras, DVR/NVRs, phones or use <strong>demo</strong> to try the pipeline.
     </p>
   </div>
   <div class="head-actions">
     <a class="btn btn-ghost" href="{{ url_for('cameras.detail', camera_id=camera_id) if camera_id else url_for('cameras.index') }}">Cancel</a>
+    <a class="btn btn-ghost" href="{{ url_for('camera_groups.index') }}">Manage groups/zones</a>
   </div>
 </div>
 
@@ -20,25 +19,33 @@
   <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
 
   <fieldset class="form-section">
-    <legend>Camera</legend>
+    <legend>Camera details</legend>
     <div class="form-row">
       <div class="field">
         <label for="name">Name</label>
-        <input id="name" name="name" value="{{ values.name }}" autocomplete="off"
-               placeholder="e.g. gate-3">
+        <input id="name" name="name" value="{{ values.name }}" autocomplete="off" placeholder="e.g. gate-3" required>
       </div>
       <div class="field">
         <label for="location">Location</label>
-        <input id="location" name="location" value="{{ values.location }}"
-               autocomplete="off" placeholder="e.g. North entrance">
+        <input id="location" name="location" value="{{ values.location }}" autocomplete="off" placeholder="e.g. North entrance">
       </div>
+    </div>
+    <div class="field">
+      <label for="group_id">Group / Zone</label>
+      <select id="group_id" name="group_id">
+        <option value="">None</option>
+        {% for g in groups or [] %}
+        <option value="{{ g.id }}" {{ 'selected' if values.group_id == g.id or values.group_id == g.id|string }}>{{ g.name }}</option>
+        {% endfor %}
+      </select>
+      <span class="hint">Organise cameras by site/zone for filtering.</span>
     </div>
   </fieldset>
 
   <fieldset class="form-section">
-    <legend>Source</legend>
+    <legend>Source connection</legend>
     <div class="field">
-      <label for="source_type">Type</label>
+      <label for="source_type">Source type</label>
       <select id="source_type" name="source_type">
         {% for option in source_types %}
         <option value="{{ option }}" {{ 'selected' if values.source_type == option }}>
@@ -47,18 +54,62 @@
         {% endfor %}
       </select>
     </div>
-    <div class="field">
-      <label for="source_url">Stream</label>
-      <input id="source_url" name="source_url" value="{{ values.source_url }}"
-             autocomplete="off" placeholder="rtsp://user:pass@camera.local/stream">
+
+    <div id="dvr-block" style="display:none;">
+      <div class="field">
+        <label for="dvr_vendor">DVR/NVR vendor</label>
+        <select id="dvr_vendor">
+          {% for k,v in (dvr_templates or {}).items() %}
+          <option value="{{ k }}" data-tpl="{{ v.template }}">{{ v.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>IP/Host</label><input id="dvr_ip" placeholder="192.168.1.100"></div>
+        <div class="field"><label>Port</label><input id="dvr_port" placeholder="554"></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>Username</label><input id="dvr_user" autocomplete="off"></div>
+        <div class="field"><label>Password</label><input id="dvr_pass" type="password" autocomplete="off"></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>Channel</label><input id="dvr_channel" placeholder="1"></div>
+        <div class="field"><label>Path/extra</label><input id="dvr_path" placeholder="Streaming/Channels/101"></div>
+      </div>
+      <button class="btn btn-small" type="button" id="build-rtsp">Build RTSP URL</button>
+      <span class="hint">Fills the Stream URL below.</span>
+    </div>
+
+    <div class="field" id="url-field">
+      <label for="source_url">Stream URL / Path / Device</label>
+      <input id="source_url" name="source_url" value="{{ values.source_url }}" autocomplete="off" placeholder="rtsp://user:pass@camera.local:554/stream or http://.../mjpeg or 0">
       <span class="hint">
-        RTSP/HTTP URL, a path to a video file, or a webcam device index (e.g. 0).
-        For the demo source this is ignored.
+        RTSP, HTTP/MJPEG, video file path, webcam index (e.g. <code>0</code>), or use <strong>phone</strong> for browser capture.
       </span>
     </div>
-    <p class="muted small">
-      Real streams need OpenCV on this server: <code>pip install -r agent/requirements.txt</code>
-    </p>
+
+    <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+      <button class="btn btn-small btn-ghost" type="button" id="test-conn">Test connection</button>
+      <span id="test-result" class="muted small"></span>
+    </div>
+
+    <p class="muted small">Real streams need OpenCV on this server: <code>pip install -r agent/requirements.txt</code></p>
+  </fieldset>
+
+  <fieldset class="form-section">
+    <legend>Algorithm settings (per camera)</legend>
+    <p class="muted small">Tune detection/tracking for this camera's mounting (height, angle, traffic). Leave blank to use defaults.</p>
+    <div class="form-row">
+      <div class="field"><label>Frame sampling (every N)</label><input name="alg_every_n_frames" type="number" min="1" max="30" value="{{ values.alg_every_n_frames or '' }}" placeholder="{{ default_algorithm.every_n_frames }}"></div>
+      <div class="field"><label>Confirm hits</label><input name="alg_confirm_hits" type="number" min="1" max="10" value="{{ values.alg_confirm_hits or '' }}" placeholder="{{ default_algorithm.confirm_hits }}"></div>
+      <div class="field"><label>Min interval (seconds)</label><input name="alg_min_interval_s" type="number" step="1" min="1" value="{{ values.alg_min_interval_s or '' }}" placeholder="{{ default_algorithm.min_interval_s }}"></div>
+    </div>
+    <div class="form-row">
+      <div class="field"><label>Tracking IoU threshold</label><input name="alg_iou_threshold" type="number" step="0.05" min="0.1" max="0.9" value="{{ values.alg_iou_threshold or '' }}" placeholder="{{ default_algorithm.iou_threshold }}"></div>
+      <div class="field"><label>Camera height (cm)</label><input name="alg_camera_height_cm" type="number" min="50" value="{{ values.alg_camera_height_cm or '' }}" placeholder="{{ default_algorithm.camera_height_cm }}"></div>
+      <div class="field"><label>Principal Y / horizon</label><input name="alg_principal_y" type="number" min="0" value="{{ values.alg_principal_y or '' }}" placeholder="{{ default_algorithm.principal_y }}"></div>
+    </div>
+    <label style="display:flex;align-items:center;gap:0.4rem;"><input type="checkbox" name="alg_face" value="1" {{ 'checked' if values.alg_face }}> Enable face detection (if available)</label>
   </fieldset>
 
   <div class="form-actions span-all">
@@ -66,4 +117,42 @@
     <a class="btn btn-ghost" href="{{ url_for('cameras.detail', camera_id=camera_id) if camera_id else url_for('cameras.index') }}">Cancel</a>
   </div>
 </form>
+
+<script>
+const st = document.getElementById('source_type');
+const dvr = document.getElementById('dvr-block');
+const url = document.getElementById('source_url');
+const testBtn = document.getElementById('test-conn');
+const testRes = document.getElementById('test-result');
+const build = document.getElementById('build-rtsp');
+function toggle(){
+  if(st.value === 'rtsp'){ dvr.style.display='block'; } else { dvr.style.display='none'; }
+  if(st.value === 'phone'){ url.placeholder='phone'; if(!url.value) url.value='phone'; }
+}
+st.addEventListener('change', toggle); toggle();
+build.addEventListener('click', ()=>{
+  const tpl = document.querySelector('#dvr_vendor option:checked').dataset.tpl;
+  const ip = document.getElementById('dvr_ip').value.trim();
+  const port = document.getElementById('dvr_port').value.trim() || '554';
+  const user = encodeURIComponent(document.getElementById('dvr_user').value.trim());
+  const pass = encodeURIComponent(document.getElementById('dvr_pass').value.trim());
+  const ch = document.getElementById('dvr_channel').value.trim() || '1';
+  const path = document.getElementById('dvr_path').value.trim();
+  let out = tpl.replace('{ip}', ip).replace('{port}', port).replace('{user}', user).replace('{pass}', pass).replace('{channel}', ch).replace('{path}', path);
+  if(out.includes('{')){ /* keep */ }
+  url.value = out; url.focus();
+});
+testBtn.addEventListener('click', async ()=>{
+  testRes.textContent = 'Testing...';
+  try {
+    const fd = new FormData();
+    fd.append('source_type', st.value);
+    fd.append('source_url', url.value);
+    fd.append('_csrf_token', '{{ csrf_token() }}');
+    const r = await fetch('{{ url_for("cameras.test_connection") }}', {method:'POST', body:fd});
+    const j = await r.json();
+    testRes.textContent = j.ok ? '✅ ' + j.message : '⚠️ ' + j.message;
+  } catch(e){ testRes.textContent = '❌ ' + e.message; }
+});
+</script>
 {% endblock %}

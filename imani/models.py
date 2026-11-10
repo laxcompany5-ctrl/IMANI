@@ -830,9 +830,18 @@ class CameraRepository:
     @staticmethod
     def create(values: dict, actor: str | None = None) -> int:
         db = get_db()
+        import json
+        algorithm_json = values.get("algorithm_json")
+        if isinstance(algorithm_json, dict):
+            algorithm_json = json.dumps(algorithm_json)
+        group_id = values.get("group_id") or None
+        try:
+            group_id = int(group_id) if group_id not in (None, "", 0) else None
+        except Exception:
+            group_id = None
         cursor = db.execute(
             "INSERT INTO cameras (name, location, source_type, source_url, "
-            "enabled, created_by) VALUES (?, ?, ?, ?, ?, ?)",
+            "enabled, created_by, group_id, algorithm_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 (values.get("name") or "").strip(),
                 (values.get("location") or "").strip() or None,
@@ -840,6 +849,8 @@ class CameraRepository:
                 (values.get("source_url") or "").strip(),
                 1 if values.get("enabled", True) else 0,
                 actor,
+                group_id,
+                algorithm_json,
             ),
         )
         db.commit()
@@ -848,9 +859,18 @@ class CameraRepository:
     @staticmethod
     def update(camera_id: int, values: dict) -> None:
         db = get_db()
+        import json
+        algorithm_json = values.get("algorithm_json")
+        if isinstance(algorithm_json, dict):
+            algorithm_json = json.dumps(algorithm_json)
+        group_id = values.get("group_id") or None
+        try:
+            group_id = int(group_id) if group_id not in (None, "", 0) else None
+        except Exception:
+            group_id = None
         db.execute(
             "UPDATE cameras SET name = ?, location = ?, source_type = ?, "
-            "source_url = ?, enabled = ?, updated_at = datetime('now') "
+            "source_url = ?, enabled = ?, group_id = ?, algorithm_json = ?, updated_at = datetime('now') "
             "WHERE id = ?",
             (
                 (values.get("name") or "").strip(),
@@ -858,6 +878,8 @@ class CameraRepository:
                 values.get("source_type") or "rtsp",
                 (values.get("source_url") or "").strip(),
                 1 if values.get("enabled", True) else 0,
+                group_id,
+                algorithm_json,
                 camera_id,
             ),
         )
@@ -1029,3 +1051,275 @@ class MediaRepository:
             )
             params.extend([like, like, like])
         return (" AND ".join(clauses) if clauses else "1=1"), params
+
+
+class CameraGroupRepository:
+    """Camera groups / zones (Bit 12)."""
+
+    @staticmethod
+    def create(values: dict) -> int:
+        db = get_db()
+        cursor = db.execute(
+            "INSERT INTO camera_groups (name, description) VALUES (?, ?)",
+            ((values.get("name") or "").strip(), (values.get("description") or "").strip() or None),
+        )
+        db.commit()
+        return cursor.lastrowid
+
+    @staticmethod
+    def get(group_id: int):
+        return get_db().execute("SELECT * FROM camera_groups WHERE id = ?", (group_id,)).fetchone()
+
+    @staticmethod
+    def get_by_name(name: str):
+        return get_db().execute("SELECT * FROM camera_groups WHERE name = ?", ((name or "").strip(),)).fetchone()
+
+    @staticmethod
+    def all():
+        return get_db().execute("SELECT * FROM camera_groups ORDER BY name").fetchall()
+
+    @staticmethod
+    def update(group_id: int, values: dict) -> None:
+        db = get_db()
+        db.execute(
+            "UPDATE camera_groups SET name = ?, description = ? WHERE id = ?",
+            ((values.get("name") or "").strip(), (values.get("description") or "").strip() or None, group_id),
+        )
+        db.commit()
+
+    @staticmethod
+    def delete(group_id: int) -> None:
+        db = get_db()
+        db.execute("DELETE FROM camera_groups WHERE id = ?", (group_id,))
+        db.commit()
+
+    @staticmethod
+    def cameras(group_id: int):
+        return get_db().execute("SELECT * FROM cameras WHERE group_id = ? ORDER BY name", (group_id,)).fetchall()
+
+
+class CameraGroupRepository:
+    """Camera groups / zones (Bit 12)."""
+
+    @staticmethod
+    def create(values: dict) -> int:
+        db = get_db()
+        cursor = db.execute(
+            "INSERT INTO camera_groups (name, description) VALUES (?, ?)",
+            ((values.get("name") or "").strip(), (values.get("description") or "").strip() or None),
+        )
+        db.commit()
+        return cursor.lastrowid
+
+    @staticmethod
+    def get(group_id: int):
+        return get_db().execute("SELECT * FROM camera_groups WHERE id = ?", (group_id,)).fetchone()
+
+    @staticmethod
+    def get_by_name(name: str):
+        return get_db().execute("SELECT * FROM camera_groups WHERE name = ?", ((name or "").strip(),)).fetchone()
+
+    @staticmethod
+    def all():
+        return get_db().execute("SELECT * FROM camera_groups ORDER BY name").fetchall()
+
+    @staticmethod
+    def update(group_id: int, values: dict) -> None:
+        db = get_db()
+        db.execute(
+            "UPDATE camera_groups SET name = ?, description = ? WHERE id = ?",
+            ((values.get("name") or "").strip(), (values.get("description") or "").strip() or None, group_id),
+        )
+        db.commit()
+
+    @staticmethod
+    def delete(group_id: int) -> None:
+        db = get_db()
+        db.execute("DELETE FROM camera_groups WHERE id = ?", (group_id,))
+        db.commit()
+
+    @staticmethod
+    def cameras(group_id: int):
+        return get_db().execute("SELECT * FROM cameras WHERE group_id = ? ORDER BY name", (group_id,)).fetchall()
+
+
+class CameraSnapshotRepository:
+    """Auto-captured snapshots from video feeds (Bit 12b)."""
+
+    @staticmethod
+    def create(values: dict) -> int:
+        db = get_db()
+        cursor = db.execute(
+            "INSERT INTO camera_snapshots (camera_id, camera_name, filename, path, source_type, captured_at, features_json, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                values.get("camera_id"),
+                values.get("camera_name"),
+                values.get("filename"),
+                values.get("path"),
+                values.get("source_type"),
+                values.get("captured_at") or values.get("created_at"),
+                values.get("features_json"),
+                values.get("description"),
+            ),
+        )
+        db.commit()
+        return cursor.lastrowid
+
+    @staticmethod
+    def update(snapshot_id: int, **values) -> None:
+        allowed = {"features_json", "description"}
+        fields = {k: v for k, v in values.items() if k in allowed}
+        if not fields:
+            return
+        assignments = ", ".join(f"{key} = ?" for key in fields)
+        db = get_db()
+        db.execute(
+            f"UPDATE camera_snapshots SET {assignments} WHERE id = ?",
+            (*fields.values(), snapshot_id),
+        )
+        db.commit()
+
+    @staticmethod
+    def all(limit=100, offset=0, camera_id=None):
+        db = get_db()
+        if camera_id:
+            return db.execute("SELECT * FROM camera_snapshots WHERE camera_id = ? ORDER BY captured_at DESC, id DESC LIMIT ? OFFSET ?",
+                              (camera_id, limit, offset)).fetchall()
+        return db.execute("SELECT * FROM camera_snapshots ORDER BY captured_at DESC, id DESC LIMIT ? OFFSET ?",
+                          (limit, offset)).fetchall()
+
+    @staticmethod
+    def count(camera_id=None):
+        db = get_db()
+        if camera_id:
+            return db.execute("SELECT COUNT(*) as n FROM camera_snapshots WHERE camera_id = ?", (camera_id,)).fetchone()['n']
+        return db.execute("SELECT COUNT(*) as n FROM camera_snapshots").fetchone()['n']
+
+    @staticmethod
+    def get(snapshot_id: int):
+        return get_db().execute("SELECT * FROM camera_snapshots WHERE id = ?", (snapshot_id,)).fetchone()
+
+    @staticmethod
+    def delete(snapshot_id: int):
+        db = get_db()
+        db.execute("DELETE FROM camera_snapshots WHERE id = ?", (snapshot_id,))
+        db.commit()
+
+
+class CameraVideoRepository:
+    """Auto-saved video recordings from video feeds for reference (Bit 12c)."""
+
+    @staticmethod
+    def create(values: dict) -> int:
+        db = get_db()
+        cursor = db.execute(
+            "INSERT INTO camera_videos (camera_id, camera_name, filename, path, source_type, duration_sec, frame_count, size_bytes, started_at, ended_at, captured_at, kind, mime_type, features_json, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                values.get("camera_id"),
+                values.get("camera_name"),
+                values.get("filename"),
+                values.get("path"),
+                values.get("source_type"),
+                values.get("duration_sec"),
+                values.get("frame_count"),
+                values.get("size_bytes"),
+                values.get("started_at"),
+                values.get("ended_at"),
+                values.get("captured_at") or values.get("created_at"),
+                values.get("kind") or "manual",
+                values.get("mime_type"),
+                values.get("features_json"),
+                values.get("description"),
+            ),
+        )
+        db.commit()
+        return cursor.lastrowid
+
+    @staticmethod
+    def update(video_id: int, **values) -> None:
+        allowed = {"features_json", "description", "kind", "mime_type"}
+        fields = {k: v for k, v in values.items() if k in allowed}
+        if not fields:
+            return
+        assignments = ", ".join(f"{key} = ?" for key in fields)
+        db = get_db()
+        db.execute(
+            f"UPDATE camera_videos SET {assignments} WHERE id = ?",
+            (*fields.values(), video_id),
+        )
+        db.commit()
+
+    @staticmethod
+    def all(limit=50, offset=0, camera_id=None, kind=None):
+        db = get_db()
+        clauses, params = [], []
+        if camera_id:
+            clauses.append("camera_id = ?")
+            params.append(camera_id)
+        if kind:
+            clauses.append("kind = ?")
+            params.append(kind)
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.extend([limit, offset])
+        return db.execute(
+            f"SELECT * FROM camera_videos{where} ORDER BY captured_at DESC, id DESC LIMIT ? OFFSET ?",
+            params,
+        ).fetchall()
+
+    @staticmethod
+    def count(camera_id=None, kind=None):
+        db = get_db()
+        clauses, params = [], []
+        if camera_id:
+            clauses.append("camera_id = ?")
+            params.append(camera_id)
+        if kind:
+            clauses.append("kind = ?")
+            params.append(kind)
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        return db.execute(
+            f"SELECT COUNT(*) as n FROM camera_videos{where}", params
+        ).fetchone()["n"]
+
+    @staticmethod
+    def get(video_id: int):
+        return get_db().execute("SELECT * FROM camera_videos WHERE id = ?", (video_id,)).fetchone()
+
+    @staticmethod
+    def delete(video_id: int):
+        db = get_db()
+        db.execute("DELETE FROM camera_videos WHERE id = ?", (video_id,))
+        db.commit()
+
+
+class MediaSearchRepository:
+    """AI-powered search across all media (Bit 12d)."""
+
+    @staticmethod
+    def index_media(media_type, media_id, camera_name=None, camera_id=None, timestamp=None,
+                    file_path=None, thumbnail_path=None, description=None, extracted_text=None):
+        db = get_db()
+        cursor = db.execute(
+            "INSERT INTO media_search_index (media_type, media_id, camera_name, camera_id, timestamp, file_path, thumbnail_path, description, extracted_text) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (media_type, media_id, camera_name, camera_id, timestamp, file_path, thumbnail_path, description, extracted_text)
+        )
+        db.commit()
+        return cursor.lastrowid
+
+    @staticmethod
+    def search_by_description(query, limit=50):
+        db = get_db()
+        q = f"%{query}%"
+        return db.execute(
+            "SELECT * FROM media_search_index WHERE description LIKE ? OR extracted_text LIKE ? OR camera_name LIKE ? ORDER BY timestamp DESC LIMIT ?",
+            (q, q, q, limit)
+        ).fetchall()
+
+    @staticmethod
+    def all(limit=100, offset=0):
+        db = get_db()
+        return db.execute("SELECT * FROM media_search_index ORDER BY timestamp DESC LIMIT ? OFFSET ?", (limit, offset)).fetchall()
+
+    @staticmethod
+    def get_by_id(index_id):
+        return get_db().execute("SELECT * FROM media_search_index WHERE id = ?", (index_id,)).fetchone()

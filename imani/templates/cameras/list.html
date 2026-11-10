@@ -1,113 +1,77 @@
 {% extends "base.html" %}
-{% block title %}Cameras<script>
-// Poll the live camera status so the page shows monitoring without a reload.
-(function () {
-  var rows = document.querySelectorAll("[data-camera-row]");
-  if (!rows.length) return;
-
-  function pill(kind, text) {
-    var color = kind === "live" ? "active" : (kind === "connecting" ? "pending"
-              : (kind === "error" ? "rejected" : "disabled"));
-    return '<span class="pill pill-' + color + '">' + text + "</span>";
-  }
-
-  function refresh() {
-    fetch("{{ url_for('cameras.status') }}", { credentials: "same-origin" })
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (data) {
-        if (!data) return;
-        data.cameras.forEach(function (camera) {
-          var row = document.querySelector('[data-camera-row="' + camera.id + '"]');
-          if (!row) return;
-          var status = row.querySelector("[data-camera-status]");
-          var seen = row.querySelector("[data-camera-seen]");
-          if (status) {
-            status.innerHTML = camera.running
-              ? pill(camera.status, camera.status)
-              : pill("stopped", "stopped");
-          }
-          if (seen && camera.last_frame_at) seen.textContent = camera.last_frame_at;
-        });
-      })
-      .catch(function () { /* leave the page as-is if polling fails */ });
-  }
-
-  setInterval(refresh, 3000);
-})();
-</script>
-{% endblock %}
-
+{% block title %}Cameras{% endblock %}
 {% block content %}
 <div class="page-head">
   <div>
-    <h1>Cameras</h1>
+    <h1>CCTV &amp; camera connections</h1>
     <p class="muted">
-      CCTV sources connected to IMANI. A monitored camera streams to the
-      server, which detects each person, extracts their traits and stores a
-      capture &mdash; exactly as if an edge agent had posted it.
+      Connect CCTV, DVR/NVR, IP cameras, phones or run the demo. 
+      {% if engine_problem %}<span class="pill pill-pending">Note: {{ engine_problem }}</span>{% endif %}
     </p>
   </div>
-  {% if can_manage %}
   <div class="head-actions">
-    <a class="btn btn-primary" href="{{ url_for('cameras.create') }}">Connect camera</a>
+    {% if can_manage %}<a class="btn btn-primary" href="{{ url_for('cameras.create') }}">Connect camera</a>{% endif %}
+    <a class="btn btn-ghost" href="{{ url_for('camera_groups.index') }}">Groups / zones</a>
+    <a class="btn btn-ghost" href="{{ url_for('archive.index') }}">Archive</a>
   </div>
-  {% endif %}
 </div>
 
-{% if engine_problem %}
-<div class="card" style="border-color: var(--danger); margin-bottom: 1.2rem;">
-  <p><strong>Live monitoring unavailable.</strong> {{ engine_problem }}</p>
-  <p class="muted small">Demo cameras still work &mdash; real streams need OpenCV installed on this server.</p>
+{% if groups %}
+<div class="card" style="margin-bottom:1rem;">
+  <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
+    <strong>Filter by zone:</strong>
+    <a class="btn btn-small {{ 'btn-primary' if not selected_group else '' }}" href="{{ url_for('cameras.index') }}">All</a>
+    {% for g in groups %}
+    <a class="btn btn-small {{ 'btn-primary' if selected_group == g.id else '' }}" href="{{ url_for('cameras.index', group_id=g.id) }}">{{ g.name }}</a>
+    {% endfor %}
+  </div>
 </div>
 {% endif %}
 
 {% if cameras %}
-<div class="card table-wrap">
-  <table class="data-table">
+<div class="table-wrap">
+  <table class="table">
     <thead>
       <tr>
-        <th>Camera</th><th>Location</th><th>Source</th><th>Status</th>
-        <th>Captures</th><th>Last seen</th><th></th>
+        <th>Camera</th>
+        <th>Zone</th>
+        <th>Type</th>
+        <th>Status</th>
+        <th>Frames / Captures</th>
+        <th>Last seen</th>
+        <th></th>
       </tr>
     </thead>
     <tbody>
       {% for camera in cameras %}
-      <tr data-camera-row="{{ camera.id }}">
+      <tr>
         <td>
-          <a href="{{ url_for('cameras.detail', camera_id=camera.id) }}"><strong>{{ camera.name }}</strong></a>
+          <strong><a href="{{ url_for('cameras.detail', camera_id=camera.id) }}">{{ camera.name }}</a></strong>
+          {% if camera.location %}<div class="muted small">{{ camera.location }}</div>{% endif %}
         </td>
-        <td class="muted small">{{ camera.location or '&mdash;' | safe }}</td>
-        <td class="muted small">{{ source_labels.get(camera.source_type, camera.source_type) }}</td>
-        <td data-camera-status>
-          {% if camera.running and camera.live == 'live' %}
-            <span class="pill pill-active">live</span>
-          {% elif camera.running and camera.live == 'connecting' %}
-            <span class="pill pill-pending">connecting</span>
-          {% elif camera.live == 'unavailable' %}
-            <span class="pill pill-unavailable" title="{{ camera.live_error or '' }}">unavailable</span>
-          {% elif camera.live == 'error' %}
-            <span class="pill pill-rejected" title="{{ camera.live_error or '' }}">error</span>
-          {% else %}
-            <span class="pill pill-disabled">stopped</span>
-          {% endif %}
+        <td>{% if camera.group_id %}{{ groups|selectattr('id','equalto',camera.group_id)|map(attribute='name')|first or '-' }}{% else %}-{% endif %}</td>
+        <td><span class="pill">{{ source_labels.get(camera.source_type, camera.source_type) }}</span></td>
+        <td>
+          {% if camera.running %}<span class="pill pill-active">{{ camera.live }}</span>
+          {% elif camera.live == 'unavailable' %}<span class="pill pill-pending">{{ camera.live }}</span>
+          {% elif camera.live == 'error' %}<span class="pill pill-danger">{{ camera.live }}</span>
+          {% else %}<span class="pill">{{ camera.live }}</span>{% endif %}
+          {% if camera.live_error %}<div class="muted small">{{ camera.live_error }}</div>{% endif %}
         </td>
-        <td class="muted small" data-camera-captures>{{ camera.capture_count }}</td>
-        <td class="muted small" data-camera-seen>{{ camera.last_frame_at or '&mdash;' | safe }}</td>
-        <td class="row-actions">
-          <a class="btn btn-small" href="{{ url_for('cameras.detail', camera_id=camera.id) }}">Open</a>
-          {% if can_manage %}
-          {% if camera.running %}
-          <form class="inline-form" method="post" action="{{ url_for('cameras.stop', camera_id=camera.id) }}">
+        <td>{{ camera.frames_seen }} / {{ camera.captures }}</td>
+        <td class="muted small">{{ camera.last_frame_at or camera.last_capture_at or '—' }}</td>
+        <td class="table-actions">
+          <a class="btn btn-small" href="{{ url_for('cameras.detail', camera_id=camera.id) }}">View</a>
+          {% if can_manage and camera.running %}
+          <form method="post" action="{{ url_for('snapshots.capture_now', camera_id=camera.id) }}" style="display:inline;">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-            <button class="btn btn-small btn-danger" type="submit">Stop</button>
-          </form>
-          {% else %}
-          <form class="inline-form" method="post" action="{{ url_for('cameras.start', camera_id=camera.id) }}">
-            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-            <button class="btn btn-small btn-primary" type="submit">Start</button>
+            <button class="btn btn-small" type="submit">📸 Snapshot</button>
           </form>
           {% endif %}
+          {% if can_manage and camera.source_type == 'phone' %}
+          <a class="btn btn-small btn-primary" href="{{ url_for('cameras.phone_capture', camera_id=camera.id) }}" target="_blank">📱 Open on phone</a>
           {% endif %}
+          <a class="btn btn-small" href="{{ url_for('cameras.qr_page', camera_id=camera.id) }}" title="Pair a phone by QR">📱 QR</a>
         </td>
       </tr>
       {% endfor %}
@@ -116,52 +80,10 @@
 </div>
 {% else %}
 <div class="card empty">
-  <p class="empty-mark">&#128249;</p>
+  <p class="empty-mark">📹</p>
   <h2>No cameras connected</h2>
-  <p class="muted">
-    Connect a CCTV stream and IMANI will capture and re-identify everyone it
-    sees. Start with the <strong>demo</strong> camera to see the pipeline run
-    with no hardware.
-  </p>
-  {% if can_manage %}
-  <p><a class="btn btn-primary" href="{{ url_for('cameras.create') }}">Connect camera</a></p>
-  {% endif %}
+  <p class="muted">Connect a CCTV, DVR/NVR, IP camera, phone, or start with the demo.</p>
+  {% if can_manage %}<p><a class="btn btn-primary" href="{{ url_for('cameras.create') }}">Connect your first camera</a></p>{% endif %}
 </div>
 {% endif %}
-<script>
-// Poll the live camera status so the page shows monitoring without a reload.
-(function () {
-  var rows = document.querySelectorAll("[data-camera-row]");
-  if (!rows.length) return;
-
-  function pill(kind, text) {
-    var color = kind === "live" ? "active" : (kind === "connecting" ? "pending"
-              : (kind === "error" ? "rejected" : "disabled"));
-    return '<span class="pill pill-' + color + '">' + text + "</span>";
-  }
-
-  function refresh() {
-    fetch("{{ url_for('cameras.status') }}", { credentials: "same-origin" })
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (data) {
-        if (!data) return;
-        data.cameras.forEach(function (camera) {
-          var row = document.querySelector('[data-camera-row="' + camera.id + '"]');
-          if (!row) return;
-          var status = row.querySelector("[data-camera-status]");
-          var seen = row.querySelector("[data-camera-seen]");
-          if (status) {
-            status.innerHTML = camera.running
-              ? pill(camera.status, camera.status)
-              : pill("stopped", "stopped");
-          }
-          if (seen && camera.last_frame_at) seen.textContent = camera.last_frame_at;
-        });
-      })
-      .catch(function () { /* leave the page as-is if polling fails */ });
-  }
-
-  setInterval(refresh, 3000);
-})();
-</script>
 {% endblock %}

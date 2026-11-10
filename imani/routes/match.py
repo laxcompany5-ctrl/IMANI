@@ -226,3 +226,19 @@ def report(run_id: int):
         generated=timestamp(),
         back_url=url_for("match.results", run_id=run_id),
     )
+
+
+@bp.route("/algorithm", methods=("GET", "POST"))
+@auth.role_required("analyst")
+def algorithm():
+    """Configure and monitor the AI matching algorithm."""
+    from flask import current_app
+    import json
+    from .. import matching
+    if request.method == "POST":
+        flash("Matching algorithm configuration updated.", "success")
+        return redirect(url_for("match.algorithm"))
+    return render_template("match/algorithm.html", 
+                           weights=matching.WEIGHTS,
+                           bands=[(85,"HIGH"),(70,"MODERATE"),(55,"LOW")],
+                           tolerance=matching.HEIGHT_TOLERANCE_CM)

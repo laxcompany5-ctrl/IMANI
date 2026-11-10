@@ -107,6 +107,79 @@ def migrate_command() -> None:
     with current_app.open_resource("schema.sql") as fh:
         db.executescript(fh.read().decode("utf-8"))
 
+    # 2b. The `cameras` CHECK constraint predates the 'phone' source. SQLite
+    #     cannot alter a constraint, so rebuild the table once when needed.
+    row = db.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='cameras'"
+    ).fetchone()
+    if row and "'phone'" not in (row["sql"] or ""):
+        db.execute("PRAGMA foreign_keys = OFF")
+        db.execute(
+            """CREATE TABLE cameras_rebuilt (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                name            TEXT    NOT NULL UNIQUE,
+                location        TEXT,
+                source_type     TEXT    NOT NULL DEFAULT 'rtsp'
+                                CHECK (source_type IN ('rtsp','http','file','device','demo','phone')),
+                source_url      TEXT    NOT NULL,
+                enabled         INTEGER NOT NULL DEFAULT 1,
+                group_id        INTEGER REFERENCES camera_groups(id) ON DELETE SET NULL,
+                algorithm_json  TEXT,
+                status          TEXT    NOT NULL DEFAULT 'stopped'
+                                CHECK (status IN ('stopped','connecting','live','error','unavailable')),
+                last_frame_at   TEXT,
+                last_capture_at TEXT,
+                last_error      TEXT,
+                created_by      TEXT,
+                created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+            )"""
+        )
+        columns = _table_columns(db, "cameras")
+        wanted = [
+            "id", "name", "location", "source_type", "source_url", "enabled",
+            "group_id", "algorithm_json", "status", "last_frame_at",
+            "last_capture_at", "last_error", "created_by", "created_at",
+            "updated_at",
+        ]
+        shared = [name for name in wanted if name in columns]
+        db.execute(
+            f"INSERT INTO cameras_rebuilt ({', '.join(shared)}) "
+            f"SELECT {', '.join(shared)} FROM cameras"
+        )
+        db.execute("DROP TABLE cameras")
+        db.execute("ALTER TABLE cameras_rebuilt RENAME TO cameras")
+        db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cameras_status ON cameras(status)"
+        )
+        db.execute("PRAGMA foreign_keys = ON")
+        added.append("cameras(source_type phone, groups, algorithm)")
+
+    # 2c. Columns added by Bit 12/13 to media tables.
+    media_additions = (
+        ("camera_snapshots", "features_json",
+         "ALTER TABLE camera_snapshots ADD COLUMN features_json TEXT"),
+        ("camera_snapshots", "description",
+         "ALTER TABLE camera_snapshots ADD COLUMN description TEXT"),
+        ("camera_videos", "kind",
+         "ALTER TABLE camera_videos ADD COLUMN kind TEXT NOT NULL DEFAULT 'manual'"),
+        ("camera_videos", "mime_type",
+         "ALTER TABLE camera_videos ADD COLUMN mime_type TEXT"),
+        ("camera_videos", "features_json",
+         "ALTER TABLE camera_videos ADD COLUMN features_json TEXT"),
+        ("camera_videos", "description",
+         "ALTER TABLE camera_videos ADD COLUMN description TEXT"),
+    )
+    for table, name, ddl in media_additions:
+        if _table_columns(db, table) and name not in _table_columns(db, table):
+            db.execute(ddl)
+            added.append(f"{table}.{name}")
+    if "kind" in _table_columns(db, "camera_videos"):
+        db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_camera_videos_kind "
+            "ON camera_videos(kind)"
+        )
+
     # 3. Columns added to `individuals` by Bit 6 (only if the table existed
     #    before step 2; a fresh table already includes them).
     individual_additions = (
