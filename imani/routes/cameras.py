@@ -427,12 +427,25 @@ def _decode_frame(value) -> bytes | None:
 
 
 def _push_phone_frame(camera, raw: bytes) -> bool:
-    """Feed a browser frame into this camera's monitor, starting it if needed."""
+    """Feed a browser frame into this camera's monitor, starting it if needed.
+
+    A phone can be paired to *any* camera, not only one created with the
+    ``phone`` source. The first frame switches that camera's monitor into
+    phone-frame mode, so QR pairing also works for demo/RTSP entries whose
+    stream cannot be read by this server (for example when OpenCV is absent).
+    """
     manager = surveillance.get_manager()
     monitor = manager.get(camera["id"])
-    if monitor is None or not monitor.is_running:
-        manager.start(current_app, camera)
-        monitor = manager.get(camera["id"])
+    phone_mode = bool(getattr(monitor, "_use_phone_source", False))
+    if monitor is None or not monitor.is_running or not phone_mode:
+        monitor = manager.start(current_app, camera, phone=True)
+        try:
+            current_app.logger.info(
+                "Phone paired with camera %s (%s); switched monitor to phone source",
+                camera["name"], camera["id"],
+            )
+        except Exception:  # pragma: no cover - logging is best effort
+            pass
     if monitor is None:
         return False
     monitor.push_frame(raw)
@@ -533,12 +546,30 @@ def _scan_camera(token: str):
     return _get_or_404(camera_id)
 
 
+def _secure_scan_url(token: str) -> str | None:
+    """A best-effort HTTPS URL for the same scan page, when one is configured.
+
+    Phones refuse ``getUserMedia`` on plain-HTTP LAN origins, so the page can
+    offer a secure link when the operator runs the server with ``IMANI_HTTPS=1``
+    (or a tunnel via ``IMANI_PUBLIC_URL``).
+    """
+    if not current_app.config.get("HTTPS_ENABLED"):
+        return None
+    override = (current_app.config.get("PUBLIC_BASE_URL") or "").strip()
+    if override:
+        return f"{override.rstrip('/')}/cameras/scan/{token}"
+    host = (request.host or "").split(":")[0] or "127.0.0.1"
+    port = str(current_app.config.get("PUBLIC_PORT") or "5443")
+    return f"https://{host}:{port}/cameras/scan/{token}"
+
+
 @bp.route("/scan/<token>")
 def scan(token: str):
     """Landing page a phone opens after scanning a camera's QR code."""
     camera = _scan_camera(token)
     return render_template(
         "cameras/scan.html", camera=camera, token=token,
+        secure_url=_secure_scan_url(token),
     )
 
 

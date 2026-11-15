@@ -100,6 +100,46 @@ class Config:
     )
     # Lifetime of a camera pairing QR link.
     QR_TOKEN_MAX_AGE = int(os.environ.get("IMANI_QR_MAX_AGE", "2592000"))
+    # How long a phone-source monitor waits for the next frame before it stops.
+    PHONE_IDLE_SECONDS = float(os.environ.get("IMANI_PHONE_IDLE", "10"))
+
+    # --- HTTPS / public URLs (needed for phone cameras) ---------------
+    # Mobile browsers block getUserMedia on plain http:// LAN addresses, so
+    # pair phones over HTTPS. `app.py` creates a self-signed certificate when
+    # IMANI_HTTPS=1.
+    HTTPS_ENABLED = os.environ.get("IMANI_HTTPS", "0").lower() in (
+        "1", "true", "yes", "on",
+    )
+    SSL_CERT = os.environ.get(
+        "IMANI_SSL_CERT", str(BASE_DIR / "instance" / "certs" / "imani.crt")
+    )
+    SSL_KEY = os.environ.get(
+        "IMANI_SSL_KEY", str(BASE_DIR / "instance" / "certs" / "imani.key")
+    )
+    # Optional overrides when HTTPS is terminated by a tunnel/reverse proxy.
+    # e.g. IMANI_PUBLIC_URL=https://imani.example.com
+    PUBLIC_BASE_URL = os.environ.get("IMANI_PUBLIC_URL", "").rstrip("/")
+    PUBLIC_SCHEME = os.environ.get("IMANI_PUBLIC_SCHEME", "")
+    PUBLIC_PORT = os.environ.get("IMANI_PUBLIC_PORT", "")
+
+    # --- Video URL import → 4K snapshots (Bit 14) ---------------------
+    # Where downloaded source video and extracted snapshots are stored.
+    VIDEO_IMPORT_ROOT = os.environ.get(
+        "IMANI_VIDEO_IMPORT_ROOT", str(BASE_DIR / "instance" / "video_imports")
+    )
+    # Refuse to download a file larger than this (bytes). Default 2 GiB.
+    VIDEO_IMPORT_MAX_BYTES = int(
+        os.environ.get("IMANI_VIDEO_IMPORT_MAX_BYTES", str(2 * 1024 ** 3))
+    )
+    # Candidate frames sampled from the video before the selector chooses.
+    VIDEO_IMPORT_MAX_CANDIDATES = int(
+        os.environ.get("IMANI_VIDEO_IMPORT_MAX_CANDIDATES", "600")
+    )
+    # Target resolution for the upscaled snapshots.
+    VIDEO_IMPORT_4K_WIDTH = int(os.environ.get("IMANI_VIDEO_4K_WIDTH", "3840"))
+    VIDEO_IMPORT_4K_HEIGHT = int(os.environ.get("IMANI_VIDEO_4K_HEIGHT", "2160"))
+    # Optional path to an ffmpeg binary. If empty, imageio-ffmpeg / PATH is used.
+    VIDEO_IMPORT_FFMPEG = os.environ.get("IMANI_FFMPEG", "")
 
     # --- Database -----------------------------------------------------
     DATABASE = os.environ.get(

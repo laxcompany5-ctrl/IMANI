@@ -476,7 +476,7 @@ synthetic frames, so the whole archive works with no hardware.
 |--------|----------------|-------|
 | **RTSP CCTV / DVR / NVR** | `/cameras/new` → RTSP, choose a vendor template (Hikvision, Dahua, Axis, Reolink, Uniview, Amcrest, generic), fill IP/port/user/pass/channel, **Build URL**, **Test connection**, Save, Start | Needs OpenCV on the server to decode |
 | **HTTP / MJPEG** | `/cameras/new` → HTTP, paste the stream URL | Needs OpenCV |
-| **Phone / browser** | `/cameras/new` → Phone, Save, then open the camera's **QR pairing** page and scan it on the phone (or open `/cameras/<id>/capture` while signed in) | No OpenCV; frames arrive over HTTP |
+| **Phone / browser** | `/cameras/new` → Phone, Save, then open the camera's **QR pairing** page and scan it on the phone (or open `/cameras/<id>/capture` while signed in) | No OpenCV; **the phone page must be served over HTTPS** (see below) |
 | **Webcam** | Source type `device`, URL `0` | Needs OpenCV |
 | **Video file** | Source type `file`, URL = path on the server | Needs OpenCV |
 | **Demo** | Source type `demo` | Synthetic walk; exercises the whole pipeline with no hardware |
@@ -488,6 +488,36 @@ opens a phone page that needs no IMANI sign-in and posts frames to
 `/cameras/scan/<token>/frame` and audio slices to `/cameras/scan/<token>/audio`.
 Those endpoints are CSRF-exempt because the token *is* the credential. The link
 uses the LAN IP automatically when the console is opened on `127.0.0.1`.
+A phone can be paired to **any** camera, not only one whose source is `phone`:
+the first frame switches that camera's monitor into phone-frame mode, so a
+demo or RTSP entry still works when the phone is the only available source.
+The capture page tries to start the camera automatically after scanning (where
+the browser allows it) and requests a screen wake lock. As soon as frames
+arrive, IMANI saves an automatic snapshot immediately, opens a continuous video
+segment, and stores microphone slices every 10 seconds. Recording continues
+only while the capture page is open and in the foreground.
+
+> **Phones require HTTPS.** Mobile browsers only expose `getUserMedia` on a
+> secure origin (`https://`, or `http://localhost`). A QR link to
+> `http://192.168.x.x:5055` opens the page but the phone's camera API is hidden.
+> Run the local server with TLS:
+>
+> ```bash
+> IMANI_HOST=0.0.0.0 IMANI_PORT=5443 IMANI_HTTPS=1 python3 app.py
+> ```
+>
+> `app.py` creates a self-signed certificate under `instance/certs/` on first
+> use (with the machine's LAN IP in the SAN). Open the QR page at
+> `https://<lan-ip>:5443/cameras/<id>/qr`, scan it, and accept the certificate
+> warning once on the phone. The QR link then uses `https://` automatically.
+> For a warning-free deployment, terminate TLS at nginx or a tunnel and set
+> `IMANI_PUBLIC_URL=https://your-host` so QR codes advertise that address.
+>
+> If the phone shows *site can't be reached*, it never reached the server:
+> check that both devices are on the same Wi-Fi, that port 5443 is allowed by
+> the firewall, and that the access point does not enable client/AP isolation.
+> The server console logs every `GET /cameras/scan/<token>` — if that line is
+> missing, the request never arrived.
 
 ### Recording while monitoring
 
@@ -542,6 +572,73 @@ description from their gallery pages, which is also used by text search.
 | `/videos/` | signed-in | Continuous/manual video + audio, filter by kind |
 | `/ai-search/` | signed-in | Description or photo search |
 
+
+## 3g. Video URL → 4K snapshots (Bit 14)
+
+Paste a video URL in **Video → 4K** (`/video-import/`). IMANI downloads the
+footage, samples candidate frames, chooses snapshots, and stores each one
+separately from the source video:
+
+```
+instance/video_imports/<id>/
+├── source/                  downloaded video (untouched)
+├── snapshots/original/      chosen frame at source resolution
+├── snapshots/4k/            3840 × 2160 JPEG (Lanczos + black padding)
+├── snapshots/thumbs/        480 × 270 gallery previews
+└── snapshots-4k.zip         created on demand
+```
+
+The job runs in a background thread and the detail page polls its status.
+Jobs interrupted by a restart are marked failed rather than left “running”.
+
+| Selector | What it does |
+|----------|--------------|
+| **Auto** | Scene-change detection (dHash distance), with even spacing as a fallback |
+| **Scene** | Only scene changes; always keeps the first frame |
+| **Interval** | Evenly spaced frames, capped by *Maximum snapshots* |
+| **People** | OpenCV HOG + SVM people detector; falls back to scene if nobody is found. Requires `opencv-python-headless` |
+
+The source is sampled every *N* seconds (default 2). For long videos the
+interval widens automatically so no more than
+`IMANI_VIDEO_IMPORT_MAX_CANDIDATES` (default 600) candidate JPEGs are produced.
+The download limit is `IMANI_VIDEO_IMPORT_MAX_BYTES` (default 2 GiB).
+
+**Direct URLs** (MP4/WebM/MOV/MKV/HLS) use `requests`/`ffmpeg`. **Platform
+pages** (YouTube, Vimeo, etc.) need `yt-dlp`; only download footage you are
+allowed to use. `yt-dlp` and `imageio-ffmpeg` are in `requirements.txt`,
+`imageio-ffmpeg` bundles an ffmpeg binary so a system ffmpeg install is not
+required.
+
+> **What “4K” means here.** Every 4K file is a genuine 3840 × 2160 JPEG,
+> produced with high-quality Lanczos interpolation and aspect-ratio padding.
+> This makes the snapshots suitable for 4K displays and printing, but it does
+> **not** invent detail that was not in the source. If a face is 40 pixels wide
+> in the footage, it is still a 40-pixel face, just spread over more pixels.
+> True detail recovery needs an AI super-resolution/restoration model
+> (Real-ESRGAN, GFPGAN, etc.), which is a separate GPU-heavy step and is not
+> bundled. A 4K export must not be presented as new evidence.
+
+| Endpoint | Who | What |
+|----------|-----|------|
+| `/video-import/` | signed-in | Import form, job list, progress |
+| `/video-import/start` | analyst/admin | Queue a download + extraction |
+| `/video-import/<id>` | signed-in | Source player, metadata, 4K gallery |
+| `/video-import/<id>/video` | signed-in | Stream/download the source footage |
+| `/video-import/<id>/snapshot/<sid>/<thumb\|original\|4k>` | signed-in | View/download one frame |
+| `/video-import/<id>/snapshots-4k.zip` | signed-in | Bundle every 4K snapshot + manifest |
+| `/video-import/<id>/delete` | analyst/admin | Remove the import and all files |
+
+Useful settings in `.env`:
+
+```bash
+IMANI_VIDEO_IMPORT_ROOT=instance/video_imports
+IMANI_VIDEO_IMPORT_MAX_BYTES=2147483648
+IMANI_VIDEO_IMPORT_MAX_CANDIDATES=600
+IMANI_VIDEO_4K_WIDTH=3840
+IMANI_VIDEO_4K_HEIGHT=2160
+# IMANI_FFMPEG=/usr/bin/ffmpeg
+```
+
 ---
 
 ## 4. Security measures
@@ -592,6 +689,7 @@ imani-web/
 │   ├── media.py            # footage, snapshots, audio written to disk (Bits 11/13)
 │   ├── features.py         # colour/histogram features + prompt matching (Bit 13)
 │   ├── qr.py               # signed camera pairing tokens + QR PNG (Bit 13)
+│   ├── video_import.py     # URL download, frame sampling, 4K upscaling (Bit 14)
 │   ├── routes/
 │   │   ├── home.py         # /  (public landing page)
 │   │   ├── auth_routes.py  # login, signup, logout, /auth/google[/callback]
@@ -601,6 +699,7 @@ imani-web/
 │   │   ├── camera_groups.py# /camera-groups  (zones/groups)
 │   │   ├── snapshots.py    # /snapshots  (auto-captured photos + descriptions)
 │   │   ├── videos.py       # /videos  (continuous video + phone audio)
+│   │   ├── video_import.py # /video-import  (URL → 4K snapshots)
 │   │   ├── ai_search.py    # /ai-search  (description and photo search)
 │   │   ├── archive.py      # /archive  (recorded footage, replay, retention)
 │   │   ├── sightings.py    # /sightings  (capture feed, review, actions)
@@ -674,4 +773,5 @@ is in `deploy/DEPLOY.md`.
 - **Bit 11 (done)** — Capture archive: footage written to disk, replayed in the browser, filterable and pruned by retention.
 - **Bit 12 (done)** — Device connectivity: DVR/NVR URL templates, phone cameras, groups/zones, per-camera algorithm settings, connection tests, snapshot gallery.
 - **Bit 13 (done)** — QR pairing, continuous snapshot/video/audio recording, measured colour/histogram features, description and photo search with real match percentages.
-- **Bit 14+** — Deployment hardening, live RTSP decode with OpenCV/ffmpeg, face-template extraction, retention policies for snapshots/recordings.
+- **Bit 14 (done)** — Video URL import: direct/platform download, scene/interval/people snapshot selection, separated original + 4K files, ZIP export, background progress and cleanup.
+- **Bit 15+** — Deployment hardening, live RTSP decode with OpenCV/ffmpeg, face-template extraction, retention policies for snapshots/recordings, optional AI super-resolution.

@@ -66,6 +66,27 @@ def test_invalid_token_is_rejected(client):
     assert client.get("/cameras/scan/not-a-real-token").status_code == 403
 
 
+def test_public_base_url_can_be_overridden(app):
+    with app.test_request_context("/", base_url="http://127.0.0.1:5055"):
+        app.config["PUBLIC_BASE_URL"] = "https://imani.example.com"
+        assert qr.public_base_url() == "https://imani.example.com"
+        app.config["PUBLIC_BASE_URL"] = ""
+        app.config["PUBLIC_SCHEME"] = "https"
+        app.config["PUBLIC_PORT"] = "5443"
+        assert qr.public_base_url().startswith("https://")
+        assert qr.public_base_url().endswith(":5443")
+
+
+def test_https_scan_page_offers_secure_link(app, client):
+    camera_id = make_camera(app, "Secure Cam")
+    token = make_token(app, camera_id)
+    app.config["HTTPS_ENABLED"] = True
+    app.config["PUBLIC_PORT"] = "5443"
+    response = client.get(f"/cameras/scan/{token}", base_url="http://192.0.2.10:5055")
+    assert response.status_code == 200
+    assert b"https://192.0.2.10:5443/cameras/scan/" in response.data
+
+
 def test_scan_frame_starts_monitor_and_accepts_frame(app, client):
     camera_id = make_camera(app, "Frame Cam")
     token = make_token(app, camera_id)

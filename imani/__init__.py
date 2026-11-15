@@ -48,6 +48,7 @@ def create_app(config_object: type | None = None) -> Flask:
         admin,
         ai_search,
         videos,
+        video_import,
         snapshots,
         camera_groups,
         archive,
@@ -72,11 +73,22 @@ def create_app(config_object: type | None = None) -> Flask:
     app.register_blueprint(camera_groups.bp)
     app.register_blueprint(snapshots.bp)
     app.register_blueprint(videos.bp)
+    app.register_blueprint(video_import.bp)
     app.register_blueprint(ai_search.bp)
     app.register_blueprint(ingest.bp)
     app.register_blueprint(reports.bp)
     app.register_blueprint(admin.bp)
     app.register_blueprint(dashboard.bp)
+
+    # Interrupted video imports cannot resume after a process restart; make
+    # their state honest instead of showing a progress bar that will never move.
+    try:
+        with app.app_context():
+            from .models import VideoImportRepository
+
+            VideoImportRepository.fail_stale()
+    except Exception:
+        pass
 
     # --- Template globals --------------------------------------------
     @app.context_processor

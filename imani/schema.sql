@@ -334,3 +334,59 @@ CREATE TABLE IF NOT EXISTS media_search_index (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_media_search_ts ON media_search_index(timestamp DESC);
+
+-- Bit 14 — import a video from a URL, extract snapshots, upscale them to 4K.
+-- The source footage and the snapshots live in separate directories on disk;
+-- only metadata is stored here.
+CREATE TABLE IF NOT EXISTS video_imports (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_url      TEXT    NOT NULL,
+    source_kind     TEXT,                       -- direct / platform
+    title           TEXT,
+    status          TEXT    NOT NULL DEFAULT 'queued',
+                                                -- queued, running, complete, failed
+    stage           TEXT,                       -- human-readable current step
+    progress        INTEGER NOT NULL DEFAULT 0, -- 0..100
+    error           TEXT,
+    video_path      TEXT,                       -- relative to VIDEO_IMPORT_ROOT
+    mime_type       TEXT,
+    duration_sec    REAL,
+    width           INTEGER,
+    height          INTEGER,
+    fps             REAL,
+    mode            TEXT    NOT NULL DEFAULT 'auto',
+    interval_sec    REAL    NOT NULL DEFAULT 2,
+    max_snapshots   INTEGER NOT NULL DEFAULT 24,
+    candidate_count INTEGER NOT NULL DEFAULT 0,
+    snapshot_count  INTEGER NOT NULL DEFAULT 0,
+    output_width    INTEGER NOT NULL DEFAULT 3840,
+    output_height   INTEGER NOT NULL DEFAULT 2160,
+    created_by      TEXT,
+    created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+    completed_at    TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_video_imports_status ON video_imports(status);
+CREATE INDEX IF NOT EXISTS idx_video_imports_created ON video_imports(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS video_import_snapshots (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    import_id       INTEGER NOT NULL REFERENCES video_imports(id) ON DELETE CASCADE,
+    timestamp_sec   REAL,
+    original_path   TEXT    NOT NULL,           -- relative to VIDEO_IMPORT_ROOT
+    upscaled_path   TEXT    NOT NULL,
+    thumb_path      TEXT,
+    original_width  INTEGER,
+    original_height INTEGER,
+    width           INTEGER,
+    height          INTEGER,
+    size_bytes      INTEGER,
+    features_json   TEXT,
+    created_at      TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_video_import_snaps_import
+    ON video_import_snapshots(import_id);
+CREATE INDEX IF NOT EXISTS idx_video_import_snaps_ts
+    ON video_import_snapshots(import_id, timestamp_sec);

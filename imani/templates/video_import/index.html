@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}Video → 4K Snapshots{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>🎞️ Video URL → 4K Snapshots</h1>
+    <p class="muted">Give IMANI a video URL. It downloads the footage, samples it, saves selected snapshots separately from the source video, and writes a 4K UHD copy of every snapshot.</p>
+  </div>
+  <div class="head-actions">
+    <a class="btn btn-ghost" href="{{ url_for('videos.index') }}">Recordings</a>
+    <a class="btn btn-ghost" href="{{ url_for('snapshots.index') }}">Snapshots</a>
+  </div>
+</div>
+
+{% if not ffmpeg_ready %}
+<div class="card" style="border-color:#f59e0b;">
+  <strong>ffmpeg is missing.</strong>
+  <p class="muted">Install it with <code>pip install imageio-ffmpeg</code> (recommended) or install the system <code>ffmpeg</code> package, then reload this page.</p>
+</div>
+{% endif %}
+
+<form class="card" method="post" action="{{ url_for('video_import.start') }}" style="margin-bottom:1.2rem;">
+  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+  <h2>Import a video</h2>
+  <p class="muted small">Direct MP4/WebM/MOV URLs work out of the box. Platform pages (YouTube, Vimeo, etc.) need <code>yt-dlp</code> installed. Only download footage you have permission to use.</p>
+  <div class="form-grid">
+    <label style="grid-column:1 / -1;">Video URL
+      <input type="url" name="source_url" required maxlength="2000" placeholder="https://example.com/footage.mp4" autocomplete="off">
+    </label>
+    <label>Snapshot selector
+      <select name="mode">
+        <option value="auto">Auto — scene changes</option>
+        <option value="scene">Scene changes only</option>
+        <option value="interval">Fixed interval</option>
+        <option value="people"{% if not opencv_ready %} disabled{% endif %}>People detector{% if not opencv_ready %} (OpenCV not installed){% endif %}</option>
+      </select>
+    </label>
+    <label>Sample every (seconds)
+      <input type="number" name="interval" min="0.5" max="60" step="0.5" value="2">
+    </label>
+    <label>Maximum snapshots
+      <input type="number" name="max_snapshots" min="1" max="200" step="1" value="24">
+    </label>
+    <label>Output
+      <input type="text" value="3840 × 2160 (4K UHD)" disabled>
+    </label>
+  </div>
+  <p class="muted small" style="margin-top:.8rem;">The source video is kept intact. Snapshots are stored in <code>instance/video_imports/&lt;id&gt;/snapshots/original/</code> and <code>…/snapshots/4k/</code>. Download limit: {{ max_mb }} MiB.</p>
+  <p class="muted small">4K copies are created with a high-quality Lanczos upscale and black padding to preserve the aspect ratio. Upscaling adds pixels; it cannot recover detail that was never in the source. True enhancement needs an AI super-resolution model, which is not bundled.</p>
+  <button class="btn btn-primary" type="submit" {% if not ffmpeg_ready %}disabled{% endif %}>Download &amp; extract 4K snapshots</button>
+</form>
+
+<div class="page-head" style="margin-top:.2rem;">
+  <div><h2>Imports</h2></div>
+  <span class="muted small">{{ total }} import{{ 's' if total != 1 else '' }}</span>
+</div>
+
+{% if imports %}
+<div class="card" style="padding:0;overflow:hidden;">
+  <table class="data-table">
+    <thead>
+      <tr><th>Video</th><th>Status</th><th>Snapshots</th><th>Created</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for item in imports %}
+      <tr>
+        <td>
+          <a href="{{ url_for('video_import.detail', import_id=item.id) }}"><strong>{{ item.title or ('Import #' ~ item.id) }}</strong></a>
+          <div class="muted small" style="max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ item.source_url }}</div>
+          {% if item.duration_sec %}<div class="muted small">{{ '%.1f'|format(item.duration_sec) }}s · {{ item.width or '?' }}×{{ item.height or '?' }} source</div>{% endif %}
+        </td>
+        <td>
+          <span class="pill {{ 'pill-active' if item.status == 'complete' else ('pill-rejected' if item.status == 'failed' else 'pill-pending') }}">{{ item.status }}</span>
+          {% if item.status in ('queued', 'running') %}
+          <div class="muted small" style="margin-top:.3rem;">{{ item.stage or 'Working' }}</div>
+          <div class="progress" title="{{ item.progress }}%"><span style="width: {{ item.progress or 0 }}%"></span></div>
+          {% elif item.status == 'failed' %}
+          <div class="muted small" style="margin-top:.3rem;color:#fecaca;">{{ (item.error or 'Failed')[:120] }}</div>
+          {% endif %}
+        </td>
+        <td>{{ item.snapshot_count or 0 }}{% if item.candidate_count %}<div class="muted small">{{ item.candidate_count }} candidates</div>{% endif %}</td>
+        <td class="muted small">{{ item.created_at }}</td>
+        <td><a class="btn btn-small btn-ghost" href="{{ url_for('video_import.detail', import_id=item.id) }}">Open</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if pages > 1 %}
+<div class="pager">
+  {% if page > 1 %}<a class="btn btn-small" href="{{ url_for('video_import.index', page=page-1) }}">Previous</a>{% endif %}
+  <span class="muted small">Page {{ page }} of {{ pages }}</span>
+  {% if page < pages %}<a class="btn btn-small" href="{{ url_for('video_import.index', page=page+1) }}">Next</a>{% endif %}
+</div>
+{% endif %}
+{% else %}
+<div class="card empty">
+  <p class="empty-mark">🎞️</p>
+  <h2>No video imports yet</h2>
+  <p class="muted">Paste a video URL above to create the first set of 4K snapshots.</p>
+</div>
+{% endif %}
+{% endblock %}

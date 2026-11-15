@@ -70,9 +70,17 @@ def lan_ip() -> str | None:
 def public_base_url() -> str:
     """The base URL a phone on the same network can reach.
 
-    When the console is opened on ``127.0.0.1`` the QR would be useless to a
-    phone, so the host is swapped for the machine's LAN IP.
+    When the console is opened on ``127.0.0.1`` the host is swapped for the
+    machine's LAN IP, otherwise the QR would be useless to a phone.
+
+    Operators can override the advertised URL (for a tunnel, reverse proxy or
+    DNS name) with ``IMANI_PUBLIC_URL``; ``IMANI_PUBLIC_SCHEME`` and
+    ``IMANI_PUBLIC_PORT`` override only those parts.
     """
+    override = (current_app.config.get("PUBLIC_BASE_URL") or "").strip()
+    if override:
+        return override.rstrip("/")
+
     root = request.url_root.rstrip("/")
     host = (request.host or "").split(":")[0]
     if host in ("localhost", "127.0.0.1", "0.0.0.0", "::1"):
@@ -83,6 +91,19 @@ def public_base_url() -> str:
             if ":" in (request.host or ""):
                 port = ":" + request.host.split(":")[-1]
             root = f"{scheme}://{address}{port}"
+
+    scheme_override = (current_app.config.get("PUBLIC_SCHEME") or "").strip()
+    port_override = str(current_app.config.get("PUBLIC_PORT") or "").strip()
+    if scheme_override or port_override:
+        from urllib.parse import urlsplit, urlunsplit
+
+        parts = urlsplit(root)
+        scheme = scheme_override or parts.scheme
+        netloc = parts.hostname or ""
+        port = port_override or (str(parts.port) if parts.port else "")
+        if port:
+            netloc = f"{netloc}:{port}"
+        root = urlunsplit((scheme, netloc, parts.path, "", ""))
     return root
 
 

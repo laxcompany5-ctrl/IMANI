@@ -263,23 +263,26 @@ class Monitor:
             self._flush(force=True)
 
     def _phone_frame_source(self):
-        """Yield frames pushed from phone/browser capture."""
+        """Yield frames pushed from phone/browser capture.
+
+        If the phone stops sending (tab closed, screen locked, network lost),
+        the monitor shuts itself down after a short idle period instead of
+        sitting in an error loop. The next frame from the phone restarts it.
+        """
         import time as _time
-        from agent.traits import Detection, Box
-        last_emit = 0
+
+        idle_limit = float(self.app.config.get("PHONE_IDLE_SECONDS", 10.0)) or 10.0
+        last_frame = _time.time()
         while not self._stop.is_set():
             if self._phone_frames:
-                ts, jpeg = self._phone_frames.popleft()
+                _ts, jpeg = self._phone_frames.popleft()
                 self._on_frame([], jpeg)
-                # Create a synthetic detection for tracking if none detected
-                # (phone source relies on agent to process; we pass empty detections
-                # but attach jpeg for archive - actual detection happens in agent)
                 yield _time.time(), []
-                last_emit = _time.time()
+                last_frame = _time.time()
             else:
-                if _time.time() - last_emit > 5:
-                    self._set_state("error", "Waiting for phone frames - open the capture page on your phone")
-                    last_emit = _time.time()
+                if _time.time() - last_frame > idle_limit:
+                    self._set_state("stopped", "Phone stopped streaming")
+                    return
                 _time.sleep(0.1)
 
     def _set_state(self, status: str, error: str | None) -> None:
@@ -374,13 +377,31 @@ class SurveillanceManager:
         self._monitors: dict[int, Monitor] = {}
         self._lock = threading.Lock()
 
-    def start(self, app, camera) -> Monitor:
-        """Start (or return) the monitor for a camera."""
+    def start(self, app, camera, phone: bool = False) -> Monitor:
+        """Start (or return) the monitor for a camera.
+
+        ``phone=True`` forces the phone-frame source. Scanning a camera's QR
+        code uses this so a phone can take over a camera that is otherwise an
+        RTSP/demo source (for example when OpenCV is not installed).
+        """
+        monitor = self._monitors.get(camera["id"])
+        if (
+            monitor is not None
+            and monitor.is_running
+            and (not phone or getattr(monitor, "_use_phone_source", False))
+        ):
+            return monitor
+        if monitor is not None:
+            # A running RTSP/demo monitor must be stopped before replacing it
+            # with a phone-source monitor.
+            self.stop(camera["id"])
         with self._lock:
             monitor = self._monitors.get(camera["id"])
             if monitor is not None and monitor.is_running:
                 return monitor
             monitor = Monitor(app, camera)
+            if phone:
+                monitor._use_phone_source = True
             self._monitors[camera["id"]] = monitor
         monitor.start()
         return monitor
@@ -437,6 +458,17 @@ class SurveillanceManager:
 def init_app(app) -> None:
     """Attach a :class:`SurveillanceManager` to the application."""
     app.extensions["surveillance"] = SurveillanceManager()
+    # Monitors live in the process, so a development-server restart leaves
+    # stale `live` rows behind. Production workers are managed separately and
+    # must not clear each other's state.
+    if app.config.get("ENVIRONMENT") != "production":
+        try:
+            from .models import CameraRepository
+
+            with app.app_context():
+                CameraRepository.clear_runtime_states()
+        except Exception:  # pragma: no cover - database may not exist yet
+            pass
 
 
 def get_manager() -> SurveillanceManager:

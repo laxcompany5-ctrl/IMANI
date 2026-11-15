@@ -16,6 +16,7 @@ def app(tmp_path):
         DATABASE = str(tmp_path / "test.sqlite3")
         # Keep test footage out of the real archive.
         MEDIA_ROOT = str(tmp_path / "media")
+        VIDEO_IMPORT_ROOT = str(tmp_path / "video_imports")
 
     application = create_app(TestingConfig)
     with application.app_context():

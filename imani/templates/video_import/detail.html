@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}{{ item.title or ('Import #' ~ item.id) }}{% endblock %}
+{% block head_extra %}{% endblock %}
+{% block content %}
+{% if is_running %}
+<meta http-equiv="refresh" content="4">
+{% endif %}
+<div class="page-head">
+  <div>
+    <p class="muted small"><a href="{{ url_for('video_import.index') }}">← All video imports</a></p>
+    <h1>{{ item.title or ('Video import #' ~ item.id) }}</h1>
+    <p class="muted small" style="word-break:break-all;">{{ item.source_url }}</p>
+  </div>
+  <div class="head-actions">
+    {% if item.status == 'complete' %}
+    <a class="btn btn-primary" href="{{ url_for('video_import.snapshots_zip', import_id=item.id) }}">Download all 4K (ZIP)</a>
+    {% endif %}
+    {% if item.video_path %}
+    <a class="btn btn-ghost" href="{{ url_for('video_import.video_file', import_id=item.id, download=1) }}">Download source video</a>
+    {% endif %}
+  </div>
+</div>
+
+<div class="stat-grid">
+  <div class="card stat"><span class="stat-label">Status</span><span class="stat-value">
+    <span class="pill {{ 'pill-active' if item.status == 'complete' else ('pill-rejected' if item.status == 'failed' else 'pill-pending') }}">{{ item.status }}</span>
+  </span></div>
+  <div class="card stat"><span class="stat-label">Snapshots saved</span><span class="stat-value">{{ item.snapshot_count or 0 }}</span></div>
+  <div class="card stat"><span class="stat-label">Source resolution</span><span class="stat-value">{{ item.width or '—' }} × {{ item.height or '—' }}</span></div>
+  <div class="card stat"><span class="stat-label">4K output</span><span class="stat-value">{{ item.output_width or 3840 }} × {{ item.output_height or 2160 }}</span></div>
+  <div class="card stat"><span class="stat-label">Duration</span><span class="stat-value">{% if item.duration_sec %}{{ '%.1f'|format(item.duration_sec) }}s{% else %}—{% endif %}</span></div>
+  <div class="card stat"><span class="stat-label">Selector</span><span class="stat-value">{{ item.mode }}{% if item.interval_sec %} / {{ item.interval_sec }}s{% endif %}</span></div>
+</div>
+
+{% if is_running %}
+<div class="card">
+  <h2>{{ item.stage or 'Working…' }}</h2>
+  <div class="progress" style="height:14px;"><span style="width: {{ item.progress or 0 }}%"></span></div>
+  <p class="muted small" style="margin-top:.5rem;">{{ item.progress or 0 }}% · This page refreshes automatically.</p>
+  <p class="muted small">Downloading and decoding can take a while for long footage. The source video and each selected frame are written to disk as they are produced.</p>
+</div>
+{% elif item.status == 'failed' %}
+<div class="card" style="border-color:#ef4444;">
+  <h2>Import failed</h2>
+  <p style="color:#fecaca;">{{ item.error or 'Unknown error.' }}</p>
+  <p class="muted small">Check the URL, make sure the video is publicly reachable, and confirm ffmpeg is installed. The server log has the full traceback.</p>
+</div>
+{% endif %}
+
+{% if item.video_path %}
+<div class="card">
+  <h2>Source footage</h2>
+  <video class="live-frame" controls preload="metadata" style="max-height:560px;background:#000;">
+    <source src="{{ url_for('video_import.video_file', import_id=item.id) }}" type="{{ item.mime_type or 'video/mp4' }}">
+    Your browser cannot preview this format. <a href="{{ url_for('video_import.video_file', import_id=item.id, download=1) }}">Download the source video</a>.
+  </video>
+  <p class="muted small" style="margin-top:.5rem;">The source is stored separately from the snapshots and is never overwritten.</p>
+</div>
+{% endif %}
+
+{% if snapshots %}
+<div class="page-head">
+  <div><h2>4K snapshots</h2><p class="muted small">Each card has the source-resolution frame and the 3840 × 2160 upscale.</p></div>
+  <span class="muted small">{{ snapshots|length }} still{{ 's' if snapshots|length != 1 else '' }}</span>
+</div>
+<div class="archive-grid">
+  {% for snap in snapshots %}
+  <div class="card archive-card">
+    <a href="{{ url_for('video_import.snapshot_file', import_id=item.id, snapshot_id=snap.id, variant='4k') }}" target="_blank" rel="noopener">
+      <div class="archive-thumb">
+        <img src="{{ url_for('video_import.snapshot_file', import_id=item.id, snapshot_id=snap.id, variant='thumb') }}" alt="Snapshot at {{ snap.timestamp_sec }} seconds" loading="lazy">
+        <span class="archive-stamp">⏱ {{ '%.1f'|format(snap.timestamp_sec or 0) }}s · 4K</span>
+      </div>
+    </a>
+    <div class="archive-meta">
+      <div class="archive-title">
+        <strong>{{ snap.width }} × {{ snap.height }}</strong>
+        <span class="pill pill-active">4K</span>
+      </div>
+      <div class="muted small">Source: {{ snap.original_width }} × {{ snap.original_height }} · {{ ((snap.size_bytes or 0) / 1048576)|round(1) }} MiB</div>
+      <div style="display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.3rem;">
+        <a class="btn btn-small" href="{{ url_for('video_import.snapshot_file', import_id=item.id, snapshot_id=snap.id, variant='4k', download=1) }}">Download 4K</a>
+        <a class="btn btn-small btn-ghost" href="{{ url_for('video_import.snapshot_file', import_id=item.id, snapshot_id=snap.id, variant='original', download=1) }}">Original</a>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% elif item.status == 'complete' %}
+<div class="card empty"><p class="empty-mark">🖼️</p><h2>No snapshots stored</h2><p class="muted">The import completed but no snapshot records were written.</p></div>
+{% endif %}
+
+{% if current_user.role in ('analyst', 'admin') %}
+<div class="card" style="margin-top:1.4rem;">
+  <h2>Danger zone</h2>
+  <p class="muted small">Deleting removes the source video, every original and 4K snapshot, the thumbnails, and the database records.</p>
+  <form method="post" action="{{ url_for('video_import.delete', import_id=item.id) }}" onsubmit="return confirm('Delete this import and all of its snapshots?');">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <button class="btn" type="submit" style="border-color:#ef4444;color:#fecaca;">Delete import</button>
+  </form>
+</div>
+{% endif %}
+{% endblock %}

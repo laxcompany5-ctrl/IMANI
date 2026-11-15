@@ -919,6 +919,25 @@ class CameraRepository:
         db.commit()
 
     @staticmethod
+    def clear_runtime_states() -> None:
+        """Clear statuses left behind by a previous server process.
+
+        Monitors live in memory, so after a restart every camera is stopped.
+        Without this the console would claim a camera is live while no thread
+        exists for it.
+        """
+        db = get_db()
+        db.execute(
+            "UPDATE cameras SET status = 'stopped', last_error = NULL "
+            "WHERE status IN ('live', 'connecting')"
+        )
+        db.execute(
+            "UPDATE cameras SET status = 'stopped', last_error = NULL "
+            "WHERE last_error LIKE 'Waiting for phone frames%'"
+        )
+        db.commit()
+
+    @staticmethod
     def update_seen(camera_id: int, last_frame_at, last_capture_at) -> None:
         """Persist the monitor's in-memory last-seen values (throttled)."""
         db = get_db()
@@ -1289,6 +1308,154 @@ class CameraVideoRepository:
     def delete(video_id: int):
         db = get_db()
         db.execute("DELETE FROM camera_videos WHERE id = ?", (video_id,))
+        db.commit()
+
+
+class VideoImportRepository:
+    """A video fetched from a URL, with snapshots extracted from it (Bit 14)."""
+
+    UPDATABLE = {
+        "source_kind", "title", "status", "stage", "progress", "error",
+        "video_path", "mime_type", "duration_sec", "width", "height", "fps",
+        "mode", "interval_sec", "max_snapshots", "candidate_count",
+        "snapshot_count", "output_width", "output_height", "completed_at",
+    }
+
+    @staticmethod
+    def create(values: dict) -> int:
+        db = get_db()
+        cursor = db.execute(
+            "INSERT INTO video_imports "
+            "(source_url, mode, interval_sec, max_snapshots, output_width, "
+            " output_height, created_by, status, stage, progress) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                (values.get("source_url") or "").strip(),
+                values.get("mode") or "auto",
+                float(values.get("interval_sec") or 2),
+                int(values.get("max_snapshots") or 24),
+                int(values.get("output_width") or 3840),
+                int(values.get("output_height") or 2160),
+                values.get("created_by"),
+                values.get("status") or "queued",
+                values.get("stage") or "Queued",
+                int(values.get("progress") or 0),
+            ),
+        )
+        db.commit()
+        return cursor.lastrowid
+
+    @staticmethod
+    def update(import_id: int, **values) -> None:
+        fields = {k: v for k, v in values.items() if k in VideoImportRepository.UPDATABLE}
+        if not fields:
+            return
+        assignments = ", ".join(f"{key} = ?" for key in fields)
+        db = get_db()
+        db.execute(
+            f"UPDATE video_imports SET {assignments}, updated_at = datetime('now') "
+            "WHERE id = ?",
+            (*fields.values(), import_id),
+        )
+        db.commit()
+
+    @staticmethod
+    def get(import_id: int):
+        return get_db().execute(
+            "SELECT * FROM video_imports WHERE id = ?", (import_id,)
+        ).fetchone()
+
+    @staticmethod
+    def all(limit: int = 50, offset: int = 0):
+        return get_db().execute(
+            "SELECT * FROM video_imports ORDER BY created_at DESC, id DESC "
+            "LIMIT ? OFFSET ?",
+            (limit, offset),
+        ).fetchall()
+
+    @staticmethod
+    def count() -> int:
+        return get_db().execute(
+            "SELECT COUNT(*) AS n FROM video_imports"
+        ).fetchone()["n"]
+
+    @staticmethod
+    def fail_stale() -> None:
+        """Mark jobs interrupted by a server restart as failed."""
+        db = get_db()
+        db.execute(
+            "UPDATE video_imports SET status = 'failed', stage = 'Interrupted', "
+            "error = COALESCE(error, 'The server restarted before this import finished.'), "
+            "updated_at = datetime('now') "
+            "WHERE status IN ('queued', 'running')"
+        )
+        db.commit()
+
+    @staticmethod
+    def delete(import_id: int) -> None:
+        db = get_db()
+        db.execute(
+            "DELETE FROM video_import_snapshots WHERE import_id = ?", (import_id,)
+        )
+        db.execute("DELETE FROM video_imports WHERE id = ?", (import_id,))
+        db.commit()
+
+
+class VideoImportSnapshotRepository:
+    """One still extracted from an imported video (Bit 14)."""
+
+    @staticmethod
+    def create(values: dict) -> int:
+        db = get_db()
+        cursor = db.execute(
+            "INSERT INTO video_import_snapshots "
+            "(import_id, timestamp_sec, original_path, upscaled_path, thumb_path, "
+            " original_width, original_height, width, height, size_bytes, "
+            " features_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                values.get("import_id"),
+                values.get("timestamp_sec"),
+                values.get("original_path"),
+                values.get("upscaled_path"),
+                values.get("thumb_path"),
+                values.get("original_width"),
+                values.get("original_height"),
+                values.get("width"),
+                values.get("height"),
+                values.get("size_bytes"),
+                values.get("features_json"),
+            ),
+        )
+        db.commit()
+        return cursor.lastrowid
+
+    @staticmethod
+    def all(import_id: int):
+        return get_db().execute(
+            "SELECT * FROM video_import_snapshots WHERE import_id = ? "
+            "ORDER BY timestamp_sec, id",
+            (import_id,),
+        ).fetchall()
+
+    @staticmethod
+    def get(snapshot_id: int):
+        return get_db().execute(
+            "SELECT * FROM video_import_snapshots WHERE id = ?", (snapshot_id,)
+        ).fetchone()
+
+    @staticmethod
+    def count(import_id: int) -> int:
+        return get_db().execute(
+            "SELECT COUNT(*) AS n FROM video_import_snapshots WHERE import_id = ?",
+            (import_id,),
+        ).fetchone()["n"]
+
+    @staticmethod
+    def delete_for_import(import_id: int) -> None:
+        db = get_db()
+        db.execute(
+            "DELETE FROM video_import_snapshots WHERE import_id = ?", (import_id,)
+        )
         db.commit()
 
 

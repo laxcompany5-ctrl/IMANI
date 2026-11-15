@@ -24,9 +24,22 @@
   <ol>
     <li>The phone opens the capture page for <strong>{{ camera.name }}</strong> — no sign-in needed.</li>
     <li>Tap <strong>Start camera</strong> and allow camera (and microphone, if offered) access.</li>
-    <li>Frames are posted to IMANI at about 2 frames per second; audio is uploaded in 10-second slices.</li>
-    <li>Snapshots save automatically every {{ config.SNAPSHOT_INTERVAL_SECONDS|int }} seconds and video is recorded in {{ config.VIDEO_SEGMENT_SECONDS|int }} second segments.</li>
+    <li>Frames are posted to IMANI at about 2 frames per second; while a phone is streaming, it becomes this camera's live feed.</li>
+    <li>Audio is uploaded in 10-second slices. Snapshots save automatically every {{ config.SNAPSHOT_INTERVAL_SECONDS|int }} seconds and video is recorded in {{ config.VIDEO_SEGMENT_SECONDS|int }} second segments.</li>
   </ol>
   <p class="muted small">Both devices must be on the same network and port {{ request.host.split(':')[-1] if ':' in request.host else '80' }} must be reachable through the firewall.</p>
+  {% if not config.HTTPS_ENABLED %}
+  <div class="card" style="border-color:#f59e0b;margin-top:1rem;">
+    <strong>⚠️ Phone cameras require HTTPS</strong>
+    <p class="muted small" style="margin-bottom:0;">
+      Mobile browsers only expose the camera on <code>https://</code> pages.
+      The current link uses plain HTTP, so the phone will show the page but
+      cannot open its camera. Restart the server with
+      <code>IMANI_HTTPS=1 IMANI_PORT=5443 python3 app.py</code> and scan a
+      regenerated QR code, or put IMANI behind an HTTPS tunnel and set
+      <code>IMANI_PUBLIC_URL</code>.
+    </p>
+  </div>
+  {% endif %}
 </div>
 {% endblock %}

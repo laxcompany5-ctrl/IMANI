@@ -7,3 +7,12 @@ pytest==9.1.1
 Pillow>=10.0
 numpy>=1.24
 qrcode[pil]>=7.4
+# Self-signed TLS certificates for HTTPS phone pairing (optional at runtime).
+cryptography>=41
+# Video URL import → 4K snapshots (Bit 14). imageio-ffmpeg bundles an ffmpeg
+# binary; yt-dlp handles platform pages; requests fetches direct files.
+requests>=2.31
+imageio-ffmpeg>=0.5
+yt-dlp>=2024.1
+# Optional: enables the "people" snapshot selector.
+# opencv-python-headless>=4.8

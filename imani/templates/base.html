@@ -27,6 +27,7 @@
       <a href="{{ url_for('camera_groups.index') }}">Groups</a>
       <a href="{{ url_for('snapshots.index') }}">Snapshots</a>
       <a href="{{ url_for('videos.index') }}">Videos</a>
+      <a href="{{ url_for('video_import.index') }}">Video → 4K</a>
       <a href="{{ url_for('ai_search.index') }}">AI Search</a>
       <a href="{{ url_for('archive.index') }}">Archive</a>
       {% if current_user.role in ('analyst', 'admin') %}
@@ -61,7 +62,7 @@
 
   <footer class="footer">
     <span>{{ app_name }} — {{ app_tagline }}</span>
-    <span class="foot-phase">Bit 13 &middot; Pairing, recording &amp; feature search</span>
+    <span class="foot-phase">Bit 14 &middot; Video URL import &amp; 4K snapshots</span>
   </footer>
   <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>

@@ -35,7 +35,39 @@
     <button id="start">Start camera</button>
     <button id="stop" class="secondary" disabled>Stop</button>
     <div class="status"><span class="dot" id="dot"></span><span id="status">Ready — tap Start camera</span></div>
-    <p class="muted" style="font-size:.82rem;margin-bottom:0;">Keep this page open while streaming. Video frames go to IMANI at ~2 FPS; audio is uploaded every 10 seconds.</p>
+    <p class="muted" style="font-size:.82rem;margin-bottom:0;">
+      The camera tries to start automatically after scanning. If the browser
+      asks, allow camera and microphone. Keep this page open and in the
+      foreground while streaming (a screen wake lock is requested where
+      supported): frames go to IMANI at ~2 FPS, an automatic snapshot is saved
+      immediately, video is written in segments, and audio is uploaded every
+      10 seconds.
+    </p>
+  </div>
+
+  <div class="card" id="insecure" style="display:none;border-color:#f59e0b;">
+    <strong>📷 Camera access needs HTTPS</strong>
+    <p class="muted" style="font-size:.9rem;">
+      Phones only allow <code>getUserMedia</code> on a secure page
+      (<code>https://</code> or <code>http://localhost</code>). This page was opened over
+      plain HTTP, so the browser hides the camera API entirely.
+    </p>
+    {% if secure_url %}
+    <p><a href="{{ secure_url }}" style="display:block;text-align:center;padding:12px;border-radius:12px;background:#a855f7;color:#1a0b2e;text-decoration:none;font-weight:600;">Open the secure (HTTPS) page</a></p>
+    <p class="muted" style="font-size:.8rem;">Accept the certificate warning once, then tap Start camera.</p>
+    {% else %}
+    <p class="muted" style="font-size:.85rem;">
+      Restart the server with <code>IMANI_HTTPS=1 IMANI_PORT=5443 python3 app.py</code>,
+      then reload this page at <code>https://{{ request.host.split(':')[0] }}:5443</code>
+      and accept the certificate warning.
+    </p>
+    {% endif %}
+    <p class="muted" style="font-size:.8rem;margin-bottom:0;">
+      If the page does not load at all, the phone cannot reach this server:
+      check that both devices are on the same Wi-Fi, that the port is allowed
+      through the firewall, and that the network does not block device-to-device
+      traffic (AP/client isolation).
+    </p>
   </div>
 
   <div class="card">
@@ -57,11 +89,27 @@
   var status = document.getElementById("status");
   var dot = document.getElementById("dot");
   var withAudio = document.getElementById("withAudio");
+  var insecure = document.getElementById("insecure");
   var canvas = document.createElement("canvas");
   var stream = null;
   var frameTimer = null;
   var recorder = null;
   var sending = false;
+  var wakeLock = null;
+  var cameraApiReady = !!(window.isSecureContext && navigator.mediaDevices &&
+                           navigator.mediaDevices.getUserMedia);
+
+  function requestWakeLock() {
+    if (!("wakeLock" in navigator) || wakeLock) return;
+    navigator.wakeLock.request("screen").then(function (lock) {
+      wakeLock = lock;
+      lock.addEventListener("release", function () { wakeLock = null; });
+    }).catch(function () {});
+  }
+
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "visible" && stream) requestWakeLock();
+  });
 
   function setStatus(text, live) {
     status.textContent = text;
@@ -114,35 +162,81 @@
     }).finally(function () { sending = false; });
   }
 
-  startBtn.addEventListener("click", function () {
+  function beginStream(mediaStream, audioActive) {
+    stream = mediaStream;
+    video.srcObject = mediaStream;
+    startBtn.disabled = true;
+    stopBtn.disabled = false;
+    setStatus(audioActive ? "Streaming to IMANI" : "Streaming to IMANI (no audio)", true);
+    requestWakeLock();
+    frameTimer = setInterval(sendFrame, 500);
+    if (audioActive) startAudio(mediaStream);
+  }
+
+  function startCamera(auto) {
+    if (stream) return;
+    if (!cameraApiReady) {
+      insecure.style.display = "block";
+      setStatus("Camera needs HTTPS on this phone", false);
+      return;
+    }
     var wantsAudio = withAudio.checked;
+    var videoConstraints = { facingMode: { ideal: "environment" } };
+
+    function failed(err) {
+      if (auto) {
+        setStatus("Tap Start camera to allow access", false);
+      } else {
+        setStatus("Camera blocked: " + err.message, false);
+      }
+    }
+
+    if (auto) setStatus("Connecting camera…", false);
     navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "environment" },
+      video: videoConstraints,
       audio: wantsAudio
     }).then(function (mediaStream) {
-      stream = mediaStream;
-      video.srcObject = mediaStream;
-      startBtn.disabled = true;
-      stopBtn.disabled = false;
-      setStatus("Streaming to IMANI", true);
-      frameTimer = setInterval(sendFrame, 500);
-      if (wantsAudio) startAudio(mediaStream);
+      var hasAudio = mediaStream.getAudioTracks().length > 0;
+      beginStream(mediaStream, wantsAudio && hasAudio);
     }).catch(function (err) {
-      setStatus("Camera blocked: " + err.message, false);
+      // A denied microphone must not prevent video capture. Retry video-only.
+      if (!wantsAudio) { failed(err); return; }
+      navigator.mediaDevices.getUserMedia({
+        video: videoConstraints,
+        audio: false
+      }).then(function (mediaStream) {
+        beginStream(mediaStream, false);
+      }).catch(failed);
     });
-  });
+  }
+
+  startBtn.addEventListener("click", function () { startCamera(false); });
 
   function stopAll() {
     if (frameTimer) { clearInterval(frameTimer); frameTimer = null; }
     if (recorder && recorder.state !== "inactive") { try { recorder.stop(); } catch (e) {} }
     recorder = null;
     if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
+    if (wakeLock) { try { wakeLock.release(); } catch (e) {} wakeLock = null; }
     startBtn.disabled = false;
     stopBtn.disabled = true;
     setStatus("Stopped", false);
   }
   stopBtn.addEventListener("click", stopAll);
   window.addEventListener("pagehide", stopAll);
+
+  if (!cameraApiReady) {
+    insecure.style.display = "block";
+    startBtn.disabled = true;
+    setStatus("Camera needs HTTPS on this phone", false);
+  } else {
+    // Scanning the QR is the intent to connect. Browsers may still require a
+    // tap (notably iOS Safari); if automatic start is refused the page falls
+    // back to the Start button.
+    setTimeout(function () {
+      if (!stream) startCamera(true);
+    }, 800);
+  }
 })();
 </script>
 </body>
