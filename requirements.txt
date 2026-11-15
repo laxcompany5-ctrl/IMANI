@@ -14,5 +14,5 @@ cryptography>=41
 requests>=2.31
 imageio-ffmpeg>=0.5
 yt-dlp>=2024.1
-# Optional: enables the "people" snapshot selector.
-# opencv-python-headless>=4.8
+# OpenCV: real RTSP/HTTP/webcam decode and the video-import "people" selector.
+opencv-python-headless>=4.8

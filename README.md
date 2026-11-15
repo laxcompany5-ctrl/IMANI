@@ -90,7 +90,8 @@ small security teams. It brings three jobs into one purple-themed web app:
 
 It is deliberately dependency-light: Python 3 + Flask + SQLite + Jinja2 with no
 JavaScript build step, no ORM and no cloud services. Real stream decoding needs
-OpenCV on the server; demo, phone and stored-media features work without it.
+OpenCV on the server; demo, phone and stored-media features work without it,
+and video import uses a bundled ffmpeg binary.
 
 ---
 
@@ -102,7 +103,9 @@ OpenCV on the server; demo, phone and stored-media features work without it.
 - **Google OAuth 2.0** via the standard library `urllib` (no OAuth package)
 - **qrcode** for camera pairing codes, **Pillow + NumPy** for feature extraction
   and demo-frame rendering
-- **Optional OpenCV** (`opencv-python-headless`) for real RTSP/HTTP/webcam decoding
+- **OpenCV** (`opencv-python-headless`) for real RTSP/HTTP/webcam decoding and
+  the video-import people selector
+- **imageio-ffmpeg** (bundled ffmpeg) and **yt-dlp** for video import
 - **gunicorn + nginx** for production deployment (see `deploy/DEPLOY.md`)
 - Vanilla CSS + a little progressive-enhancement JS — no build step
 
@@ -596,7 +599,7 @@ Jobs interrupted by a restart are marked failed rather than left “running”.
 | **Auto** | Scene-change detection (dHash distance), with even spacing as a fallback |
 | **Scene** | Only scene changes; always keeps the first frame |
 | **Interval** | Evenly spaced frames, capped by *Maximum snapshots* |
-| **People** | OpenCV HOG + SVM people detector; falls back to scene if nobody is found. Requires `opencv-python-headless` |
+| **People** | OpenCV HOG + SVM people detector; falls back to scene if nobody is found (`opencv-python-headless` is installed by `requirements.txt`) |
 
 The source is sampled every *N* seconds (default 2). For long videos the
 interval widens automatically so no more than
