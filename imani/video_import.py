@@ -290,7 +290,10 @@ def _download_with_ytdlp(url: str, directory: Path, max_bytes: int):
         "fragment_retries": 3,
     }
     if ffmpeg:
-        options["ffmpeg_location"] = str(Path(ffmpeg).parent)
+        # imageio-ffmpeg names its binary ``ffmpeg-linux-x86_64-...``, so a
+        # directory is not enough for yt-dlp to discover it. Hand over the
+        # full executable path instead (supported by yt-dlp >= 2021.09.02).
+        options["ffmpeg_location"] = str(ffmpeg)
     if max_bytes:
         options["max_filesize"] = max_bytes
 
