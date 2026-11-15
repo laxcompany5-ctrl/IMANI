@@ -200,6 +200,7 @@ def _download_direct(url: str, directory: Path, max_bytes: int):
     extension = _extension_from_url(url)
     target = directory / f"source{extension}"
     part = directory / f"source{extension}.part"
+    completed = False
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
@@ -247,6 +248,7 @@ def _download_direct(url: str, directory: Path, max_bytes: int):
             if total == 0:
                 raise VideoImportError("The video URL returned an empty file.")
             part.replace(target)
+            completed = True
             return {
                 "path": target,
                 "title": _title_from_headers(response.headers)
@@ -257,11 +259,12 @@ def _download_direct(url: str, directory: Path, max_bytes: int):
     except requests.RequestException as exc:
         raise VideoImportError(f"Could not download the video: {exc}") from exc
     finally:
-        try:
-            if part.exists() and part.stat().st_size == 0:
-                part.unlink()
-        except OSError:
-            pass
+        if not completed:
+            try:
+                if part.exists():
+                    part.unlink()
+            except OSError:
+                pass
 
 
 def _download_with_ytdlp(url: str, directory: Path, max_bytes: int):

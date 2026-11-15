@@ -226,6 +226,9 @@ def snapshots_zip(import_id: int):
 @auth.role_required("analyst")
 def delete(import_id: int):
     item = _get_or_404(import_id)
+    if item["status"] in ("queued", "running"):
+        flash("This import is still running. Wait for it to finish before deleting it.", "warning")
+        return redirect(url_for("video_import.detail", import_id=import_id))
     base = video_import.root() / str(item["id"])
     VideoImportRepository.delete(import_id)
     try:
