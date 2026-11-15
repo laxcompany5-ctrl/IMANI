@@ -49,6 +49,7 @@ _WORKER = threading.Semaphore(1)
 _HOG = None
 _HOG_LOCK = threading.Lock()
 
+_STREAM_EXTENSIONS = {".m3u8", ".mpd"}
 _VIDEO_EXTENSIONS = {
     ".mp4", ".m4v", ".mov", ".webm", ".mkv", ".avi", ".ts", ".mts", ".m2ts",
     ".mpg", ".mpeg", ".ogv", ".3gp",
@@ -219,8 +220,10 @@ def _download_direct(url: str, directory: Path, max_bytes: int):
             ).split(";")[0].strip().lower()
             if content_type.startswith("text/") or content_type in (
                 "application/xhtml+xml", "application/json",
+                "application/vnd.apple.mpegurl", "application/x-mpegurl",
+                "audio/mpegurl",
             ):
-                return None  # let yt-dlp handle a platform/page URL
+                return None  # let yt-dlp/ffmpeg handle a page or HLS playlist
 
             extension = _MIME_EXTENSIONS.get(content_type) or extension
             target = directory / f"source{extension}"
@@ -320,7 +323,10 @@ def download(url: str, directory: Path, max_bytes: int) -> dict:
         raise VideoImportError("Only http:// and https:// video URLs are supported.")
     if not parsed.netloc:
         raise VideoImportError("The video URL is missing a host name.")
-    result = _download_direct(url, directory, max_bytes)
+    if parsed.path.lower().endswith(tuple(_STREAM_EXTENSIONS)):
+        result = _download_with_ytdlp(url, directory, max_bytes)
+    else:
+        result = _download_direct(url, directory, max_bytes)
     if result is None:
         result = _download_with_ytdlp(url, directory, max_bytes)
     if not result["mime_type"]:
