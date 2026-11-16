@@ -17,6 +17,7 @@ from flask import (
     redirect,
     render_template,
     request,
+    session,
     url_for,
 )
 
@@ -567,6 +568,14 @@ def _secure_scan_url(token: str) -> str | None:
 def scan(token: str):
     """Landing page a phone opens after scanning a camera's QR code."""
     camera = _scan_camera(token)
+    # Start the phone-source monitor as soon as the page is opened, so the
+    # device is visible as connecting/capturing before the first frame lands.
+    try:
+        surveillance.get_manager().start(current_app, camera, phone=True)
+    except Exception:  # pragma: no cover - the frame endpoint will retry
+        current_app.logger.exception(
+            "Could not start phone monitor for camera %s", camera["id"]
+        )
     return render_template(
         "cameras/scan.html", camera=camera, token=token,
         secure_url=_secure_scan_url(token),
@@ -594,6 +603,109 @@ def scan_audio(token: str):
     else:
         data, mime = request.get_data(), request.content_type
     return _store_audio(camera, data, mime)
+
+
+# --- Device connection protocol (self-registering phone) ------------------
+
+def _register_phone_device(payload: dict):
+    """Return the phone camera for a connect token, creating it on first scan.
+
+    The camera is created before the first frame arrives and its monitor is
+    started immediately, so it shows up on Connected Devices and begins
+    recording/snapshotting as soon as the phone's camera is running.
+    """
+    nonce = str(payload.get("nonce") or "")
+    if not nonce:
+        abort(403, description="This device pairing link is invalid.")
+    key = f"imani_device_{nonce}"
+    existing_id = session.get(key)
+    if existing_id:
+        existing = CameraRepository.get(int(existing_id))
+        if existing is not None:
+            return existing
+
+    base = f"Phone {nonce[:6].upper()}"
+    name = base
+    suffix = 2
+    while CameraRepository.get_by_name(name) is not None:
+        name = f"{base}-{suffix}"
+        suffix += 1
+    camera_id = CameraRepository.create(
+        {
+            "name": name,
+            "location": "Paired by QR",
+            "source_type": "phone",
+            "source_url": "phone",
+            "enabled": True,
+        },
+        actor="QR pairing",
+    )
+    session[key] = camera_id
+    AuditRepository.record(
+        "DEVICE_CONNECT",
+        "cameras",
+        camera_id,
+        f"Phone registered by QR scan: {name}",
+        "QR pairing",
+    )
+    return CameraRepository.get(camera_id)
+
+
+@bp.route("/connect")
+@auth.login_required
+def connect():
+    """Operator page: show the QR a new phone scans to join IMANI."""
+    token = qr.make_connect_token()
+    return render_template(
+        "cameras/connect.html",
+        token=token,
+        scan_url=qr.connect_device_url(token),
+        max_age_minutes=max(
+            1, int(current_app.config.get("CONNECT_TOKEN_MAX_AGE", 3600)) // 60
+        ),
+    )
+
+
+@bp.route("/connect/qr.png")
+@auth.login_required
+def connect_qr_png():
+    token = (request.args.get("token") or "").strip()
+    if qr.load_connect_token(token) is None:
+        abort(403, description="This device pairing link is invalid or has expired.")
+    try:
+        payload = qr.png(qr.connect_device_url(token))
+    except Exception as exc:
+        abort(503, description=f"QR generation is unavailable: {exc}")
+    return Response(
+        payload, mimetype="image/png",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@bp.route("/connect/<token>")
+def connect_device(token: str):
+    """Public landing page for a phone that scanned the device-connect QR."""
+    payload = qr.load_connect_token(token)
+    if payload is None:
+        abort(
+            403,
+            description=(
+                "This device pairing link is invalid or has expired. "
+                "Ask the operator to show a fresh QR code."
+            ),
+        )
+    camera = _register_phone_device(payload)
+    try:
+        surveillance.get_manager().start(current_app, camera, phone=True)
+    except Exception:  # pragma: no cover - frames retry the start
+        current_app.logger.exception(
+            "Could not start phone monitor for new device %s", camera["id"]
+        )
+    camera_token = qr.make_token(camera["id"])
+    return render_template(
+        "cameras/scan.html", camera=camera, token=camera_token,
+        secure_url=_secure_scan_url(camera_token),
+    )
 
 
 # --- Live view ------------------------------------------------------------
@@ -655,6 +767,7 @@ def status():
             "id": camera["id"],
             "name": camera["name"],
             "group_id": _row_get(camera, "group_id"),
+            "source_type": camera["source_type"],
             "status": live.get("status") or camera["status"] or "stopped",
             "running": bool(live.get("running")),
             "error": live.get("error") or camera["last_error"],

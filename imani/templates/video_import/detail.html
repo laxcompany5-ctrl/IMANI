@@ -18,6 +18,10 @@
     {% if item.video_path %}
     <a class="btn btn-ghost" href="{{ url_for('video_import.video_file', import_id=item.id, download=1) }}">Download source video</a>
     {% endif %}
+    {% if item.library_video_id %}
+    <a class="btn btn-ghost" href="{{ url_for('videos.detail', video_id=item.library_video_id) }}">Open in Videos</a>
+    <a class="btn btn-ghost" href="{{ url_for('snapshots.index') }}">Open Snapshots</a>
+    {% endif %}
   </div>
 </div>
 
@@ -26,11 +30,28 @@
     <span class="pill {{ 'pill-active' if item.status == 'complete' else ('pill-rejected' if item.status == 'failed' else 'pill-pending') }}">{{ item.status }}</span>
   </span></div>
   <div class="card stat"><span class="stat-label">Snapshots saved</span><span class="stat-value">{{ item.snapshot_count or 0 }}</span></div>
+  <div class="card stat"><span class="stat-label">Filtered out (bad exposure/blur)</span><span class="stat-value">{{ item.rejected_count or 0 }}</span></div>
   <div class="card stat"><span class="stat-label">Source resolution</span><span class="stat-value">{{ item.width or '—' }} × {{ item.height or '—' }}</span></div>
   <div class="card stat"><span class="stat-label">4K output</span><span class="stat-value">{{ item.output_width or 3840 }} × {{ item.output_height or 2160 }}</span></div>
   <div class="card stat"><span class="stat-label">Duration</span><span class="stat-value">{% if item.duration_sec %}{{ '%.1f'|format(item.duration_sec) }}s{% else %}—{% endif %}</span></div>
   <div class="card stat"><span class="stat-label">Selector</span><span class="stat-value">{{ item.mode }}{% if item.interval_sec %} / {{ item.interval_sec }}s{% endif %}</span></div>
 </div>
+
+{% if item.library_video_id %}
+<div class="card" style="border-color: rgba(168,85,247,.55);">
+  <h2>Published to the library</h2>
+  <p class="muted small">The source video is stored in <strong>Videos</strong> and the filtered, lighting-corrected 4K snapshots are stored in <strong>Snapshots</strong>. Import #{{ item.id }} keeps its own gallery below.</p>
+  <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
+    <a class="btn btn-primary" href="{{ url_for('videos.detail', video_id=item.library_video_id) }}">View source video</a>
+    <a class="btn btn-ghost" href="{{ url_for('snapshots.index') }}">View Snapshots library</a>
+  </div>
+</div>
+{% elif item.status == 'complete' %}
+<div class="card" style="border-color:#f59e0b;">
+  <h2>Not yet published</h2>
+  <p class="muted small">This import finished before the library step was added. Run <code>flask publish-imports</code> (or wait for the next import) to move it into Videos and Snapshots.</p>
+</div>
+{% endif %}
 
 {% if is_running %}
 <div class="card">
@@ -60,7 +81,7 @@
 
 {% if snapshots %}
 <div class="page-head">
-  <div><h2>4K snapshots</h2><p class="muted small">Each card has the source-resolution frame and the 3840 × 2160 upscale.</p></div>
+  <div><h2>4K snapshots</h2><p class="muted small">Each card has the source-resolution frame and the 3840 × 2160 copy. Frames that were too dark, blown out, flat or blurred were filtered out before saving, and the 4K copy has shadow lift / highlight recovery.</p></div>
   <span class="muted small">{{ snapshots|length }} still{{ 's' if snapshots|length != 1 else '' }}</span>
 </div>
 <div class="archive-grid">
@@ -78,6 +99,14 @@
         <span class="pill pill-active">4K</span>
       </div>
       <div class="muted small">Source: {{ snap.original_width }} × {{ snap.original_height }} · {{ ((snap.size_bytes or 0) / 1048576)|round(1) }} MiB</div>
+      {% if snap.quality %}
+      <div class="muted small">
+        Brightness {{ ((snap.quality.brightness or 0) * 100)|round(0)|int }}% ·
+        Sharpness {{ snap.quality.sharpness }} ·
+        Contrast {{ snap.quality.contrast }}
+        {% if snap.quality.lighting %}· Lighting: {{ snap.quality.lighting|join(', ') }}{% else %}· Lighting already balanced{% endif %}
+      </div>
+      {% endif %}
       <div style="display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.3rem;">
         <a class="btn btn-small" href="{{ url_for('video_import.snapshot_file', import_id=item.id, snapshot_id=snap.id, variant='4k', download=1) }}">Download 4K</a>
         <a class="btn btn-small btn-ghost" href="{{ url_for('video_import.snapshot_file', import_id=item.id, snapshot_id=snap.id, variant='original', download=1) }}">Original</a>
@@ -93,7 +122,7 @@
 {% if current_user.role in ('analyst', 'admin') %}
 <div class="card" style="margin-top:1.4rem;">
   <h2>Danger zone</h2>
-  <p class="muted small">Deleting removes the source video, every original and 4K snapshot, the thumbnails, and the database records.</p>
+  <p class="muted small">Deleting removes the source video, every original and 4K snapshot, the thumbnails, the library copies in Videos and Snapshots, and the database records.</p>
   <form method="post" action="{{ url_for('video_import.delete', import_id=item.id) }}" onsubmit="return confirm('Delete this import and all of its snapshots?');">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <button class="btn" type="submit" style="border-color:#ef4444;color:#fecaca;">Delete import</button>

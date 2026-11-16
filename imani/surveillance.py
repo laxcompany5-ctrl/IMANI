@@ -535,21 +535,47 @@ Monitor.start = _monitor_start_patched
 Monitor.push_frame = push_frame
 
 
-def _save_auto_snapshot(self) -> None:
-    """Persist the current frame, with measured features for AI search."""
+def _save_auto_snapshot(self) -> bool:
+    """Filter and persist the current frame, with measured features.
+
+    Live frames are checked for exposure, contrast and sharpness before they
+    reach the Snapshots library. Accepted frames are lighting-corrected before
+    saving; the raw frame still drives the live view and the recording
+    segments. Returns ``True`` when a snapshot was written.
+    """
     from .models import CameraSnapshotRepository
+    from . import video_import
 
     jpeg = self._latest_jpeg
     if not jpeg:
-        return
+        return False
+    try:
+        quality = video_import.analyze_quality_bytes(jpeg)
+    except Exception:  # pragma: no cover - measurement must never stop capture
+        quality = {"ok": True, "reasons": [], "brightness": None}
+    if not quality.get("ok"):
+        return False
+    try:
+        adjusted, actions, saved_brightness = (
+            video_import.normalise_lighting_bytes(jpeg)
+        )
+    except Exception:  # pragma: no cover - save the raw frame if PIL rejects it
+        adjusted = jpeg
+        actions = []
+        saved_brightness = quality.get("brightness")
+    quality = {
+        **quality,
+        "lighting": actions,
+        "saved_brightness": saved_brightness,
+    }
     with self.app.app_context():
         result = media.save_snapshot(
-            self.camera["name"], jpeg,
+            self.camera["name"], adjusted,
             camera_id=self.camera_id,
             source_type=_cam(self.camera, "source_type"),
         )
         if not result:
-            return
+            return False
         CameraSnapshotRepository.create({
             "camera_id": self.camera_id,
             "camera_name": self.camera["name"],
@@ -558,7 +584,9 @@ def _save_auto_snapshot(self) -> None:
             "source_type": _cam(self.camera, "source_type"),
             "captured_at": _now(),
             "features_json": result.get("features_json"),
+            "quality_json": _json.dumps(quality),
         })
+    return True
 
 
 def _write_segment(self) -> None:
@@ -637,9 +665,12 @@ def _flush_with_snapshot(self, force=False):
         if (due or force) and self._latest_jpeg:
             if force and self._last_auto_snapshot:
                 pass  # already captured this run; don't duplicate on stop
-            else:
+            elif _save_auto_snapshot(self):
                 self._last_auto_snapshot = now
-                _save_auto_snapshot(self)
+            else:
+                # The frame was filtered out. Retry shortly instead of waiting
+                # a full interval, so the first usable frame is not missed.
+                self._last_auto_snapshot = now - interval + 5.0
     except Exception:  # pragma: no cover - best effort
         pass
     try:

@@ -100,6 +100,9 @@ class Config:
     )
     # Lifetime of a camera pairing QR link.
     QR_TOKEN_MAX_AGE = int(os.environ.get("IMANI_QR_MAX_AGE", "2592000"))
+    # Window in which an operator-generated "connect a device" QR can be
+    # scanned. Kept short because each scan registers a new phone camera.
+    CONNECT_TOKEN_MAX_AGE = int(os.environ.get("IMANI_CONNECT_MAX_AGE", "3600"))
     # How long a phone-source monitor waits for the next frame before it stops.
     PHONE_IDLE_SECONDS = float(os.environ.get("IMANI_PHONE_IDLE", "10"))
 

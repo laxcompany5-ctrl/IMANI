@@ -19,7 +19,12 @@ from flask import (
 )
 
 from .. import auth, media, surveillance
-from ..models import AuditRepository, CameraRepository, CameraVideoRepository
+from ..models import (
+    AuditRepository,
+    CameraRepository,
+    CameraVideoRepository,
+    VideoImportRepository,
+)
 
 bp = Blueprint("videos", __name__, url_prefix="/videos")
 
@@ -39,7 +44,7 @@ def index():
     page = max(1, request.args.get("page", type=int) or 1)
     camera_id = request.args.get("camera_id", type=int)
     kind = request.args.get("kind") or None
-    if kind not in (None, "manual", "auto", "audio"):
+    if kind not in (None, "manual", "auto", "audio", "import"):
         kind = None
     per_page = 24
     videos = CameraVideoRepository.all(
@@ -71,7 +76,30 @@ def detail(video_id: int):
         manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else None
     except Exception:
         manifest = None
-    return render_template("videos/detail.html", video=vid, manifest=manifest)
+    return render_template(
+        "videos/detail.html", video=vid, manifest=manifest,
+        is_import=(vid["kind"] == "import"),
+    )
+
+
+@bp.route("/<int:video_id>/source")
+@auth.login_required
+def source(video_id: int):
+    """Stream the original file behind an imported video."""
+    vid = _get_or_404(video_id)
+    try:
+        base = Path(current_app.config["MEDIA_ROOT"]).parent
+        directory = (base / vid["path"]).resolve()
+        path = (directory / (vid["filename"] or "video.mp4")).resolve()
+        if base.resolve() not in path.parents or not path.is_file():
+            abort(404)
+        return send_file(
+            str(path),
+            mimetype=vid["mime_type"] or "video/mp4",
+            conditional=True,
+        )
+    except Exception:
+        abort(404)
 
 
 @bp.route("/<int:video_id>/poster.jpg")
@@ -230,6 +258,23 @@ def record_all():
 @auth.role_required("analyst")
 def delete(video_id: int):
     vid = _get_or_404(video_id)
+    if vid["kind"] == "import":
+        # Removing an imported video also removes its import record and the
+        # snapshots that were published with it.
+        from .. import video_import
+
+        linked = VideoImportRepository.find_by_library_video(video_id)
+        if linked:
+            video_import.delete_import(linked["id"])
+        else:
+            CameraVideoRepository.delete(video_id)
+        AuditRepository.record(
+            "DELETE", "camera_videos", video_id,
+            f"Deleted imported video: {vid['camera_name']}",
+            auth.current_user()["username"],
+        )
+        flash("Imported video, its source file and its library snapshots were deleted.", "success")
+        return redirect(url_for("videos.index"))
     try:
         base = Path(current_app.config["MEDIA_ROOT"]).parent
         import shutil

@@ -161,6 +161,8 @@ def migrate_command() -> None:
          "ALTER TABLE camera_snapshots ADD COLUMN features_json TEXT"),
         ("camera_snapshots", "description",
          "ALTER TABLE camera_snapshots ADD COLUMN description TEXT"),
+        ("camera_snapshots", "quality_json",
+         "ALTER TABLE camera_snapshots ADD COLUMN quality_json TEXT"),
         ("camera_videos", "kind",
          "ALTER TABLE camera_videos ADD COLUMN kind TEXT NOT NULL DEFAULT 'manual'"),
         ("camera_videos", "mime_type",
@@ -179,6 +181,26 @@ def migrate_command() -> None:
             "CREATE INDEX IF NOT EXISTS idx_camera_videos_kind "
             "ON camera_videos(kind)"
         )
+
+    # 2d. Columns added by Bit 15: published copies of imported media.
+    library_additions = (
+        ("video_imports", "library_video_id",
+         "ALTER TABLE video_imports ADD COLUMN library_video_id INTEGER"),
+        ("video_imports", "library_slug",
+         "ALTER TABLE video_imports ADD COLUMN library_slug TEXT"),
+        ("video_imports", "published_at",
+         "ALTER TABLE video_imports ADD COLUMN published_at TEXT"),
+        ("video_import_snapshots", "library_snapshot_id",
+         "ALTER TABLE video_import_snapshots ADD COLUMN library_snapshot_id INTEGER"),
+        ("video_imports", "rejected_count",
+         "ALTER TABLE video_imports ADD COLUMN rejected_count INTEGER NOT NULL DEFAULT 0"),
+        ("video_import_snapshots", "quality_json",
+         "ALTER TABLE video_import_snapshots ADD COLUMN quality_json TEXT"),
+    )
+    for table, name, ddl in library_additions:
+        if _table_columns(db, table) and name not in _table_columns(db, table):
+            db.execute(ddl)
+            added.append(f"{table}.{name}")
 
     # 3. Columns added to `individuals` by Bit 6 (only if the table existed
     #    before step 2; a fresh table already includes them).
@@ -201,9 +223,32 @@ def migrate_command() -> None:
         click.echo("Database already up to date.")
 
 
+@click.command("publish-imports")
+def publish_imports_command() -> None:
+    """Publish completed video imports into the Videos and Snapshots libraries."""
+    from . import video_import
+
+    app = current_app._get_current_object()
+    results = video_import.publish_completed_imports(app)
+    if not results:
+        click.echo("No unpublished completed imports.")
+        return
+    for result in results:
+        if result.get("error"):
+            click.echo(
+                f"Import {result['import_id']}: ERROR {result['error']}"
+            )
+        else:
+            click.echo(
+                f"Import {result['import_id']}: video "
+                f"{result.get('video_id')}, {result.get('snapshots', 0)} snapshots."
+            )
+
+
 def init_app(app) -> None:
     app.teardown_appcontext(close_db)
     app.cli.add_command(init_db_command)
     app.cli.add_command(reset_db_command)
     app.cli.add_command(seed_command)
     app.cli.add_command(migrate_command)
+    app.cli.add_command(publish_imports_command)

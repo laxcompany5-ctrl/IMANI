@@ -11,6 +11,7 @@
   </div>
   <div class="head-actions">
     {% if can_manage %}<a class="btn btn-primary" href="{{ url_for('cameras.create') }}">Connect camera</a>{% endif %}
+    <a class="btn btn-ghost" href="{{ url_for('cameras.connect') }}">Connect phone (QR)</a>
     <a class="btn btn-ghost" href="{{ url_for('camera_groups.index') }}">Groups / zones</a>
     <a class="btn btn-ghost" href="{{ url_for('archive.index') }}">Archive</a>
   </div>

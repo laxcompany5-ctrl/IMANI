@@ -3,8 +3,8 @@
 {% block content %}
 <div class="page-head">
   <div>
-    <h1>📸 Auto-Captured Snapshots from Video Feeds</h1>
-    <p class="muted">Photos saved automatically every {{ config.SNAPSHOT_INTERVAL_SECONDS|int }}s from CCTV, IP cameras, DVR/NVR and phone cameras. Describe any photo so AI search can find it later.</p>
+    <h1>📸 Snapshots Library</h1>
+    <p class="muted">Photos saved automatically every {{ config.SNAPSHOT_INTERVAL_SECONDS|int }}s from CCTV, IP cameras, DVR/NVR and phone cameras, filtered for exposure and sharpness. Imported video frames are published here at 3840 × 2160 with shadow lift / highlight recovery. Describe any photo so AI search can find it later.</p>
   </div>
   <div class="head-actions">
     {% if current_user.role in ('analyst','admin') %}
@@ -44,6 +44,7 @@
       <div class="archive-title">
         <strong>{{ snap.camera_name or 'Unknown' }}</strong>
         <span class="pill">{{ snap.source_type or '-' }}</span>
+        {% if snap.source_type == 'import' %}<span class="pill pill-active">4K UHD · auto-lit</span>{% endif %}
       </div>
       {% if snap.description %}
       <div class="small" style="color: var(--primary);">{{ snap.description }}</div>

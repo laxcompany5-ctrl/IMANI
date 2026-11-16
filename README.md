@@ -67,6 +67,25 @@ A security-analyst web app built in small, working increments ("bits").
 > Each frame's colours and histogram are measured once and saved, so an analyst
 > can type a description ("man in a red jacket") or upload a photo and get a
 > ranked list of saved photos/recordings with a real match percentage.
+>
+> **Bit 14 — Video URL import:** paste a direct video URL or a platform page
+> (YouTube, Vimeo, …), download the source footage once, and extract snapshots
+> with a deterministic selector (scene changes, fixed intervals, or OpenCV
+> people detection). Each selected frame is stored at source resolution and as
+> a genuine 3840 × 2160 JPEG, with a ZIP export and live progress.
+>
+> **Bit 15 — Snapshots library publication & quality filtering:** completed
+> imports are published into the app's permanent libraries — the source video
+> appears in **Videos** and the filtered 4K frames in **Snapshots**. Frames are
+> rejected for near-black/blown-out exposure, flat contrast or blur, then the
+> published 4K copy gets hue-preserving shadow lift / highlight recovery.
+> Deleting an import cascades to both library views.
+>
+> **Bit 16 — Device connection protocol:** a short-lived, self-registering
+> **Connect phone (QR)** code. Scanning it creates a phone camera automatically,
+> starts its monitor immediately, streams the phone camera into IMANI, and
+> shows the device on an auto-refreshing **Connected Devices** page. Live
+> snapshots pass through the same quality filter and lighting correction.
 
 ---
 
@@ -479,26 +498,39 @@ synthetic frames, so the whole archive works with no hardware.
 |--------|----------------|-------|
 | **RTSP CCTV / DVR / NVR** | `/cameras/new` → RTSP, choose a vendor template (Hikvision, Dahua, Axis, Reolink, Uniview, Amcrest, generic), fill IP/port/user/pass/channel, **Build URL**, **Test connection**, Save, Start | Needs OpenCV on the server to decode |
 | **HTTP / MJPEG** | `/cameras/new` → HTTP, paste the stream URL | Needs OpenCV |
-| **Phone / browser** | `/cameras/new` → Phone, Save, then open the camera's **QR pairing** page and scan it on the phone (or open `/cameras/<id>/capture` while signed in) | No OpenCV; **the phone page must be served over HTTPS** (see below) |
+| **Phone / browser** | Open **Connect phone (QR)** (`/cameras/connect`) and scan the code on the phone, or create a phone camera and use its own **QR pairing** page (or open `/cameras/<id>/capture` while signed in) | No OpenCV; **the phone page must be served over HTTPS** (see below) |
 | **Webcam** | Source type `device`, URL `0` | Needs OpenCV |
 | **Video file** | Source type `file`, URL = path on the server | Needs OpenCV |
 | **Demo** | Source type `demo` | Synthetic walk; exercises the whole pipeline with no hardware |
 
-**QR pairing.** `/cameras/<id>/qr` shows a QR code generated with the `qrcode`
-package. The code contains a signed, camera-scoped URL (`itsdangerous`, salt
-`imani-camera-qr`) valid for `IMANI_QR_MAX_AGE` seconds (30 days). Scanning it
-opens a phone page that needs no IMANI sign-in and posts frames to
-`/cameras/scan/<token>/frame` and audio slices to `/cameras/scan/<token>/audio`.
-Those endpoints are CSRF-exempt because the token *is* the credential. The link
-uses the LAN IP automatically when the console is opened on `127.0.0.1`.
+**QR pairing.** There are two ways to connect a phone:
+
+1. **Connect phone (QR)** at `/cameras/connect` (also linked from the Cameras
+   and Connected Devices pages) shows a short-lived, self-registering code.
+   Scanning it creates a new `phone` camera automatically, starts its monitor
+   immediately, and opens the capture page. The device appears on
+   **Connected Devices** within a few seconds (the page polls
+   `/cameras/status.json`), and re-opening the same link on the same phone
+   reuses the same device.
+2. `/cameras/<id>/qr` shows a camera-scoped code for an existing camera.
+
+Both codes contain signed URLs (`itsdangerous`; salts `imani-camera-qr` and
+`imani-device-connect`). Camera codes last `IMANI_QR_MAX_AGE` seconds
+(30 days); the self-registering device code lasts `IMANI_CONNECT_MAX_AGE`
+seconds (1 hour). The phone page needs no IMANI sign-in and posts frames to
+`/cameras/scan/<token>/frame` and audio slices to
+`/cameras/scan/<token>/audio`. Those endpoints are CSRF-exempt because the
+token *is* the credential. The link uses the LAN IP automatically when the
+console is opened on `127.0.0.1`.
 A phone can be paired to **any** camera, not only one whose source is `phone`:
 the first frame switches that camera's monitor into phone-frame mode, so a
 demo or RTSP entry still works when the phone is the only available source.
 The capture page tries to start the camera automatically after scanning (where
-the browser allows it) and requests a screen wake lock. As soon as frames
-arrive, IMANI saves an automatic snapshot immediately, opens a continuous video
-segment, and stores microphone slices every 10 seconds. Recording continues
-only while the capture page is open and in the foreground.
+the browser allows it) and requests a screen wake lock. The monitor starts as
+soon as the scan page opens; as frames arrive, IMANI saves an automatic
+snapshot immediately, opens a continuous video segment, and stores microphone
+slices every 10 seconds. Recording continues only while the capture page is
+open and in the foreground.
 
 > **Phones require HTTPS.** Mobile browsers only expose `getUserMedia` on a
 > secure origin (`https://`, or `http://localhost`). A QR link to
@@ -528,7 +560,13 @@ While a monitor thread is running:
 
 - **Snapshots** — one JPEG every `IMANI_SNAPSHOT_INTERVAL` seconds (default 30),
   stored under `instance/snapshots/YYYY-MM-DD/<camera>/` and indexed in
-  `camera_snapshots`.
+  `camera_snapshots`. Before saving, the frame is measured for brightness,
+  contrast and edge sharpness; almost-black, blown-out, flat and blurred
+  frames are rejected. Accepted frames get shadow lift / highlight recovery
+  and value-channel auto-contrast (hue is preserved), and the filter result is
+  stored in `quality_json`. Bad frames are retried after ~5 seconds, not a full
+  interval. Live snapshots stay at the camera's native resolution; 4K upscaling
+  is reserved for frames extracted from imported videos.
 - **Video** — continuous frame-sequence segments of
   `IMANI_VIDEO_SEGMENT` seconds (default 20), under `instance/videos/…`,
   indexed in `camera_videos` with `kind='auto'`. Manual saves use `kind='manual'`.
@@ -566,33 +604,97 @@ description from their gallery pages, which is also used by text search.
 
 | Endpoint | Who | What |
 |----------|-----|------|
+| `/cameras/connect` | signed-in | Self-registering phone QR (new device per phone) |
+| `/cameras/connect/qr.png` | signed-in | PNG for the device-connect QR |
+| `/cameras/connect/<token>` | no sign-in | Register/open a phone camera |
 | `/cameras/<id>/qr` | signed-in | Show the pairing QR and link |
 | `/cameras/<id>/qr.png` | signed-in | PNG QR code |
 | `/cameras/scan/<token>` | no sign-in | Phone landing page |
 | `/cameras/scan/<token>/frame` | token | Receive a phone JPEG frame |
 | `/cameras/scan/<token>/audio` | token | Receive a phone audio slice |
+| `/cameras/status.json` | signed-in | Live status used to refresh Connected Devices |
+| `/cameras/live` | signed-in | Connected devices, auto-refreshing |
 | `/snapshots/` | signed-in | Auto-captured photo gallery + descriptions |
-| `/videos/` | signed-in | Continuous/manual video + audio, filter by kind |
+| `/videos/` | signed-in | Continuous/manual/imported video + audio, filter by kind |
 | `/ai-search/` | signed-in | Description or photo search |
 
 
-## 3g. Video URL → 4K snapshots (Bit 14)
+## 3g. Video URL → 4K snapshots (Bits 14–15)
 
 Paste a video URL in **Video → 4K** (`/video-import/`). IMANI downloads the
-footage, samples candidate frames, chooses snapshots, and stores each one
-separately from the source video:
+footage, samples candidate frames, filters them for quality, chooses snapshots,
+and stores each one separately from the source video.
+
+**Two-stage storage.** Extraction first writes to a scratch area, then a
+completed import is *published* to the permanent libraries:
 
 ```
-instance/video_imports/<id>/
+instance/video_imports/<id>/                 # scratch during processing
 ├── source/                  downloaded video (untouched)
 ├── snapshots/original/      chosen frame at source resolution
 ├── snapshots/4k/            3840 × 2160 JPEG (Lanczos + black padding)
 ├── snapshots/thumbs/        480 × 270 gallery previews
 └── snapshots-4k.zip         created on demand
+
+instance/videos/<date>/<slug>/import_<id>/   # permanent Videos tab
+├── video.mp4 (or .webm etc.)  the original download, untouched
+├── poster.jpg                 preview generated from a snapshot
+└── manifest.json              source URL, duration, resolution, counts
+
+instance/snapshots/<date>/<slug>/import_<id>/ # permanent Snapshots tab
+├── snapshot_0001_t000s.jpg        source-resolution frame
+├── snapshot_0001_t000s_4k.jpg     filtered, lighting-corrected 4K frame
+└── snapshot_0001_t000s_thumb.jpg  gallery preview
 ```
+
+The **Videos** tab shows imported source footage (filter `kind=import`), with a
+native HTML5 player and byte-range seeking. The **Snapshots** tab shows the
+published 4K frames. The import detail page keeps its own gallery and links to
+both library items. `video_imports.library_video_id`,
+`video_import_snapshots.library_snapshot_id` and `published_at` tie the two
+views together; the stored paths on the import rows are rewritten after the
+move, so nothing is duplicated on disk.
+
+**Quality gate.** Before a frame can be selected (and before an older import is
+published) it must satisfy:
+
+| Measure | Accepted range |
+|---------|----------------|
+| Brightness | 0.08 – 0.93 (mean of the grayscale frame) |
+| Contrast | ≥ 0.05 (standard deviation) |
+| Edge sharpness | ≥ 0.025 (mean of a FIND_EDGES pass) |
+| Near-black / near-white | not > 94% / > 90% of pixels at the extremes |
+
+Rejected candidates are counted in `video_imports.rejected_count`. If *every*
+candidate fails (for example a genuinely dark night scene), the best-scoring
+frames are used instead of returning an empty import. The same gate runs on
+live device snapshots; a rejected live frame is retried after ~5 seconds.
+
+**Lighting correction.** Only the published 4K copy is adjusted. The untouched
+source-resolution frame is always kept. The pipeline:
+
+1. Lifts shadows when mean brightness < 0.30, or recovers highlights when
+   mean > 0.70, using a gamma curve.
+2. Applies gentle auto-contrast to the HSV *value* channel only, so colours are
+   not neutralised (a red jacket stays red).
+
+Every snapshot stores the measured brightness/contrast/sharpness, the actions
+applied and the saved brightness in `quality_json`, and the import detail page
+shows them.
 
 The job runs in a background thread and the detail page polls its status.
 Jobs interrupted by a restart are marked failed rather than left “running”.
+Completed imports from before the library step can be published with:
+
+```bash
+python3 -m flask --app app publish-imports
+```
+
+Deleting an import from `/video-import/<id>` also removes the Videos entry,
+every published snapshot, the original frames, thumbnails and the scratch
+directory. Deleting the imported video from the Videos tab cascades the same
+way. Deleting one published snapshot from the Snapshots tab removes its import
+snapshot record too, so the two galleries never disagree.
 
 | Selector | What it does |
 |----------|--------------|
@@ -629,7 +731,10 @@ required.
 | `/video-import/<id>/video` | signed-in | Stream/download the source footage |
 | `/video-import/<id>/snapshot/<sid>/<thumb\|original\|4k>` | signed-in | View/download one frame |
 | `/video-import/<id>/snapshots-4k.zip` | signed-in | Bundle every 4K snapshot + manifest |
-| `/video-import/<id>/delete` | analyst/admin | Remove the import and all files |
+| `/video-import/<id>/delete` | analyst/admin | Remove the import, library copies and all files |
+| `/videos/?kind=import` | signed-in | Imported source footage in the Videos tab |
+| `/videos/<id>/source` | signed-in | Range-capable stream of an imported source video |
+| `/snapshots/` | signed-in | Published 4K frames alongside live snapshots |
 
 Useful settings in `.env`:
 
@@ -639,6 +744,7 @@ IMANI_VIDEO_IMPORT_MAX_BYTES=2147483648
 IMANI_VIDEO_IMPORT_MAX_CANDIDATES=600
 IMANI_VIDEO_4K_WIDTH=3840
 IMANI_VIDEO_4K_HEIGHT=2160
+IMANI_CONNECT_MAX_AGE=3600
 # IMANI_FFMPEG=/usr/bin/ffmpeg
 ```
 
@@ -679,7 +785,7 @@ imani-web/
 │   ├── __init__.py         # application factory
 │   ├── config.py           # configuration
 │   ├── schema.sql          # users + audit_log + individuals + match tables
-│   ├── db.py               # SQLite helpers + CLI (init-db, reset-db, seed, migrate)
+│   ├── db.py               # SQLite helpers + CLI (init-db, reset-db, seed, migrate, publish-imports)
 │   ├── security.py         # CSRF protection
 │   ├── validation.py       # username/email/password + register field rules
 │   ├── models.py           # User/Individual/Match/Audit repositories
@@ -691,8 +797,8 @@ imani-web/
 │   ├── surveillance.py     # monitor threads: cameras, snapshots, segments (Bits 10/13)
 │   ├── media.py            # footage, snapshots, audio written to disk (Bits 11/13)
 │   ├── features.py         # colour/histogram features + prompt matching (Bit 13)
-│   ├── qr.py               # signed camera pairing tokens + QR PNG (Bit 13)
-│   ├── video_import.py     # URL download, frame sampling, 4K upscaling (Bit 14)
+│   ├── qr.py               # signed camera/device pairing tokens + QR PNG (Bits 13/16)
+│   ├── video_import.py     # URL download, quality filter, 4K upscale, library publish (Bits 14/15)
 │   ├── routes/
 │   │   ├── home.py         # /  (public landing page)
 │   │   ├── auth_routes.py  # login, signup, logout, /auth/google[/callback]
@@ -732,6 +838,11 @@ imani-web/
     ├── test_capture.py     # CCTV ingestion, re-identification, profiles, sightings console
     ├── test_agent.py       # capture agent: traits, tracking, payloads, delivery
     ├── test_cameras.py     # camera registry, monitoring, live view, RBAC
+    ├── test_device_connect.py # self-registering phone QR, monitor, snapshots
+    ├── test_phone_pairing.py  # QR pairing takeover for any camera source
+    ├── test_qr.py          # QR tokens, scan page, frame/audio endpoints
+    ├── test_recording.py   # auto snapshots, quality filter, video segments
+    ├── test_video_import.py# 4K extraction, quality, publish/backfill/delete
     └── test_archive.py     # footage storage, replay, retention, RBAC
 ```
 
@@ -777,4 +888,6 @@ is in `deploy/DEPLOY.md`.
 - **Bit 12 (done)** — Device connectivity: DVR/NVR URL templates, phone cameras, groups/zones, per-camera algorithm settings, connection tests, snapshot gallery.
 - **Bit 13 (done)** — QR pairing, continuous snapshot/video/audio recording, measured colour/histogram features, description and photo search with real match percentages.
 - **Bit 14 (done)** — Video URL import: direct/platform download, scene/interval/people snapshot selection, separated original + 4K files, ZIP export, background progress and cleanup.
-- **Bit 15+** — Deployment hardening, live RTSP decode with OpenCV/ffmpeg, face-template extraction, retention policies for snapshots/recordings, optional AI super-resolution.
+- **Bit 15 (done)** — Library publication: source video published to Videos, filtered 4K snapshots published to Snapshots, hue-preserving lighting correction, quality/rejection reporting, cascade deletes and `publish-imports` backfill.
+- **Bit 16 (done)** — Device connection protocol: self-registering phone QR, immediate monitor start, auto-refreshing Connected Devices, quality-filtered and lighting-corrected live snapshots.
+- **Bit 17+** — Deployment hardening, live RTSP decode with OpenCV/ffmpeg, face-template extraction, retention policies for snapshots/recordings, optional AI super-resolution.

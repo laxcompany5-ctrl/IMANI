@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Connect a phone{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>📱 Connect a phone as a camera</h1>
+    <p class="muted">Scan this code with a phone on the same network. The phone registers itself as a new device, opens its camera, and starts streaming, recording and saving filtered snapshots — no sign-in needed.</p>
+  </div>
+  <div class="head-actions">
+    <a class="btn btn-ghost" href="{{ url_for('cameras.live_connections') }}">Connected devices</a>
+    <a class="btn btn-ghost" href="{{ url_for('cameras.index') }}">All cameras</a>
+  </div>
+</div>
+
+<div class="card" style="text-align:center;">
+  <img src="{{ url_for('cameras.connect_qr_png', token=token) }}" alt="QR code to connect a phone" width="320" height="320" style="border-radius:12px;background:#fff;padding:8px;">
+  <p class="muted" style="margin-top:0.75rem;">Or open this link on the phone:</p>
+  <p><code style="word-break:break-all;">{{ scan_url }}</code></p>
+  <p class="muted small">This code expires after {{ max_age_minutes }} minutes. Reload this page for a fresh code.</p>
+</div>
+
+<div class="card" style="margin-top:1rem;">
+  <h2>What happens after scanning</h2>
+  <ol>
+    <li>A new <strong>Phone</strong> device is registered automatically and appears on the Connected Devices page.</li>
+    <li>The phone asks for camera (and microphone) permission and starts streaming at about 2 frames per second.</li>
+    <li>IMANI records continuous {{ config.VIDEO_SEGMENT_SECONDS|int }}s video segments and extracts snapshots every {{ config.SNAPSHOT_INTERVAL_SECONDS|int }}s.</li>
+    <li>Snapshots are checked for exposure, contrast and sharpness before saving. Accepted frames get shadow lift / highlight recovery and are stored in the Snapshots library.</li>
+    <li>Recordings and snapshots are indexed for AI search, just like CCTV feeds.</li>
+  </ol>
+  {% if not config.HTTPS_ENABLED %}
+  <div class="card" style="border-color:#f59e0b;margin-top:1rem;">
+    <strong>⚠️ Phone cameras require HTTPS</strong>
+    <p class="muted small" style="margin-bottom:0;">
+      Mobile browsers only expose the camera on <code>https://</code> pages.
+      Restart the server with
+      <code>IMANI_HTTPS=1 IMANI_PORT=5443 python3 app.py</code> and scan a
+      regenerated QR code, or put IMANI behind an HTTPS tunnel and set
+      <code>IMANI_PUBLIC_URL</code>.
+    </p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

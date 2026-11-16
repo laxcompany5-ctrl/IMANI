@@ -1169,7 +1169,7 @@ class CameraSnapshotRepository:
     def create(values: dict) -> int:
         db = get_db()
         cursor = db.execute(
-            "INSERT INTO camera_snapshots (camera_id, camera_name, filename, path, source_type, captured_at, features_json, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO camera_snapshots (camera_id, camera_name, filename, path, source_type, captured_at, features_json, description, quality_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 values.get("camera_id"),
                 values.get("camera_name"),
@@ -1179,6 +1179,7 @@ class CameraSnapshotRepository:
                 values.get("captured_at") or values.get("created_at"),
                 values.get("features_json"),
                 values.get("description"),
+                values.get("quality_json"),
             ),
         )
         db.commit()
@@ -1319,6 +1320,7 @@ class VideoImportRepository:
         "video_path", "mime_type", "duration_sec", "width", "height", "fps",
         "mode", "interval_sec", "max_snapshots", "candidate_count",
         "snapshot_count", "output_width", "output_height", "completed_at",
+        "library_video_id", "library_slug", "published_at", "rejected_count",
     }
 
     @staticmethod
@@ -1400,6 +1402,20 @@ class VideoImportRepository:
         db.execute("DELETE FROM video_imports WHERE id = ?", (import_id,))
         db.commit()
 
+    @staticmethod
+    def find_by_library_video(video_id: int):
+        return get_db().execute(
+            "SELECT * FROM video_imports WHERE library_video_id = ?",
+            (video_id,),
+        ).fetchone()
+
+    @staticmethod
+    def unpublished_complete():
+        return get_db().execute(
+            "SELECT * FROM video_imports WHERE status = 'complete' "
+            "AND library_video_id IS NULL ORDER BY id"
+        ).fetchall()
+
 
 class VideoImportSnapshotRepository:
     """One still extracted from an imported video (Bit 14)."""
@@ -1411,7 +1427,8 @@ class VideoImportSnapshotRepository:
             "INSERT INTO video_import_snapshots "
             "(import_id, timestamp_sec, original_path, upscaled_path, thumb_path, "
             " original_width, original_height, width, height, size_bytes, "
-            " features_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " features_json, quality_json, library_snapshot_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 values.get("import_id"),
                 values.get("timestamp_sec"),
@@ -1424,10 +1441,29 @@ class VideoImportSnapshotRepository:
                 values.get("height"),
                 values.get("size_bytes"),
                 values.get("features_json"),
+                values.get("quality_json"),
+                values.get("library_snapshot_id"),
             ),
         )
         db.commit()
         return cursor.lastrowid
+
+    @staticmethod
+    def update(snapshot_id: int, **values) -> None:
+        allowed = {
+            "original_path", "upscaled_path", "thumb_path", "quality_json",
+            "library_snapshot_id",
+        }
+        fields = {k: v for k, v in values.items() if k in allowed}
+        if not fields:
+            return
+        assignments = ", ".join(f"{key} = ?" for key in fields)
+        db = get_db()
+        db.execute(
+            f"UPDATE video_import_snapshots SET {assignments} WHERE id = ?",
+            (*fields.values(), snapshot_id),
+        )
+        db.commit()
 
     @staticmethod
     def all(import_id: int):
@@ -1444,6 +1480,13 @@ class VideoImportSnapshotRepository:
         ).fetchone()
 
     @staticmethod
+    def find_by_library_snapshot(snapshot_id: int):
+        return get_db().execute(
+            "SELECT * FROM video_import_snapshots WHERE library_snapshot_id = ?",
+            (snapshot_id,),
+        ).fetchone()
+
+    @staticmethod
     def count(import_id: int) -> int:
         return get_db().execute(
             "SELECT COUNT(*) AS n FROM video_import_snapshots WHERE import_id = ?",
@@ -1455,6 +1498,14 @@ class VideoImportSnapshotRepository:
         db = get_db()
         db.execute(
             "DELETE FROM video_import_snapshots WHERE import_id = ?", (import_id,)
+        )
+        db.commit()
+
+    @staticmethod
+    def delete(snapshot_id: int) -> None:
+        db = get_db()
+        db.execute(
+            "DELETE FROM video_import_snapshots WHERE id = ?", (snapshot_id,)
         )
         db.commit()
 

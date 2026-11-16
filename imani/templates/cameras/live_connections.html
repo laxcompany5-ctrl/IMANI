@@ -7,16 +7,17 @@
     <p class="muted">Real-time status of all CCTV, cameras, DVR/NVR, and phones connected and capturing.</p>
   </div>
   <div class="head-actions">
+    <a class="btn btn-primary" href="{{ url_for('cameras.connect') }}">Connect phone (QR)</a>
+    <a class="btn btn-ghost" href="{{ url_for('cameras.create') }}">Connect CCTV / device</a>
     <a class="btn btn-ghost" href="{{ url_for('cameras.index') }}">All Cameras</a>
-    <a class="btn btn-primary" href="{{ url_for('cameras.create') }}">Connect New Device</a>
   </div>
 </div>
 
 <div class="stat-grid">
-  <div class="card stat"><span class="stat-value">{{ cameras|length }}</span><span class="stat-label">Total Connected</span></div>
-  <div class="card stat"><span class="stat-value">{{ cameras|selectattr('running')|list|length }}</span><span class="stat-label">Actively Capturing</span></div>
-  <div class="card stat"><span class="stat-value">{{ cameras|selectattr('source_type','equalto','phone')|list|length }}</span><span class="stat-label">Phone Cameras</span></div>
-  <div class="card stat"><span class="stat-value">{{ cameras|selectattr('source_type','in',['rtsp','http'])|list|length }}</span><span class="stat-label">CCTV/IP Streams</span></div>
+  <div class="card stat"><span class="stat-value" id="stat-total">{{ cameras|length }}</span><span class="stat-label">Total Connected</span></div>
+  <div class="card stat"><span class="stat-value" id="stat-active">{{ cameras|selectattr('running')|list|length }}</span><span class="stat-label">Actively Capturing</span></div>
+  <div class="card stat"><span class="stat-value" id="stat-phones">{{ cameras|selectattr('source_type','equalto','phone')|list|length }}</span><span class="stat-label">Phone Cameras</span></div>
+  <div class="card stat"><span class="stat-value" id="stat-cctv">{{ cameras|selectattr('source_type','in',['rtsp','http'])|list|length }}</span><span class="stat-label">CCTV/IP Streams</span></div>
 </div>
 
 <div class="card" style="margin-top:1rem;">
@@ -28,24 +29,24 @@
       </thead>
       <tbody>
         {% for cam in cameras %}
-        <tr>
+        <tr data-camera-id="{{ cam.id }}">
           <td><strong><a href="{{ url_for('cameras.detail', camera_id=cam.id) }}">{{ cam.name }}</a></strong>{% if cam.location %}<div class="muted small">{{ cam.location }}</div>{% endif %}</td>
           <td><span class="pill">{{ source_labels.get(cam.source_type, cam.source_type) }}</span></td>
           <td>-</td>
-          <td>
+          <td data-cell="status">
             {% if cam.running %}<span class="pill pill-active">● CAPTURING</span>
             {% elif cam.live == 'unavailable' %}<span class="pill pill-pending">UNAVAILABLE</span>
             {% elif cam.live == 'error' %}<span class="pill pill-danger">ERROR</span>
             {% else %}<span class="pill">STOPPED</span>{% endif %}
           </td>
           <td class="muted small">{{ cam.source_url[:40] }}{% if cam.source_url|length > 40 %}...{% endif %}</td>
-          <td>{{ cam.frames_seen }}</td>
-          <td>{{ cam.captures }}</td>
-          <td class="muted small">{{ cam.last_frame_at or '—' }}</td>
+          <td data-cell="frames">{{ cam.frames_seen }}</td>
+          <td data-cell="captures">{{ cam.captures }}</td>
+          <td class="muted small" data-cell="last">{{ cam.last_frame_at or '—' }}</td>
           <td>
             <a class="btn btn-small" href="{{ url_for('cameras.detail', camera_id=cam.id) }}">Manage</a>
-            {% if cam.source_type == 'phone' and cam.running %}
-            <a class="btn btn-small btn-primary" href="{{ url_for('cameras.phone_capture', camera_id=cam.id) }}" target="_blank">Phone View</a>
+            {% if cam.source_type == 'phone' %}
+            <a class="btn btn-small btn-primary" href="{{ url_for('cameras.qr_page', camera_id=cam.id) }}">QR</a>
             {% endif %}
           </td>
         </tr>
@@ -67,4 +68,64 @@
     <li><strong>AI Search</strong> - All media indexed and searchable by description or photo upload</li>
   </ul>
 </div>
+
+<script>
+(function () {
+  "use strict";
+  var rendered = document.querySelectorAll("tr[data-camera-id]");
+  var renderedIds = new Set();
+  rendered.forEach(function (row) { renderedIds.add(row.dataset.cameraId); });
+  var statusUrl = {{ url_for('cameras.status')|tojson }};
+
+  function statusPill(cam) {
+    if (cam.running) return '<span class="pill pill-active">● CAPTURING</span>';
+    if (cam.status === "unavailable") return '<span class="pill pill-pending">UNAVAILABLE</span>';
+    if (cam.status === "error") return '<span class="pill pill-danger">ERROR</span>';
+    if (cam.status === "connecting") return '<span class="pill pill-pending">CONNECTING</span>';
+    return '<span class="pill">STOPPED</span>';
+  }
+
+  function refresh() {
+    fetch(statusUrl, { credentials: "same-origin", cache: "no-store" })
+      .then(function (response) { return response.ok ? response.json() : null; })
+      .then(function (data) {
+        if (!data || !data.cameras) return;
+        // A new phone registered after the page loaded: reload once so the
+        // new device is shown with its own row and actions.
+        if (data.cameras.length !== renderedIds.size) {
+          window.location.reload();
+          return;
+        }
+        var active = 0, phones = 0, cctv = 0;
+        data.cameras.forEach(function (cam) {
+          var row = document.querySelector('tr[data-camera-id="' + cam.id + '"]');
+          if (!row) return;
+          var status = row.querySelector('[data-cell="status"]');
+          var frames = row.querySelector('[data-cell="frames"]');
+          var captures = row.querySelector('[data-cell="captures"]');
+          var last = row.querySelector('[data-cell="last"]');
+          if (status) status.innerHTML = statusPill(cam);
+          if (frames) frames.textContent = cam.frames_seen || 0;
+          if (captures) captures.textContent = cam.captures || 0;
+          if (last) last.textContent = cam.last_frame_at || "—";
+          if (cam.running) active += 1;
+          if (cam.source_type === "phone") phones += 1;
+          if (cam.source_type === "rtsp" || cam.source_type === "http") cctv += 1;
+        });
+        var total = document.getElementById("stat-total");
+        var activeEl = document.getElementById("stat-active");
+        var phonesEl = document.getElementById("stat-phones");
+        var cctvEl = document.getElementById("stat-cctv");
+        if (total) total.textContent = data.cameras.length;
+        if (activeEl) activeEl.textContent = active;
+        if (phonesEl) phonesEl.textContent = phones;
+        if (cctvEl) cctvEl.textContent = cctv;
+      })
+      .catch(function () {});
+  }
+
+  setInterval(refresh, 4000);
+  refresh();
+})();
+</script>
 {% endblock %}

@@ -15,8 +15,15 @@ from imani.models import (
 
 
 def jpeg(colour=(200, 40, 40)):
+    """A striped frame: textured enough to pass the quality gate."""
+    image = Image.new("RGB", (96, 72))
+    dark = tuple(max(0, int(channel * 0.45)) for channel in colour)
+    pixels = image.load()
+    for y in range(72):
+        for x in range(96):
+            pixels[x, y] = colour if (x // 3) % 2 == 0 else dark
     buffer = BytesIO()
-    Image.new("RGB", (96, 72), colour).save(buffer, format="JPEG", quality=90)
+    image.save(buffer, format="JPEG", quality=90)
     return buffer.getvalue()
 
 
@@ -42,7 +49,9 @@ def test_forced_flush_saves_snapshot_with_features(app):
         snapshots = CameraSnapshotRepository.all()
     assert len(snapshots) == 1
     features = json.loads(snapshots[0]["features_json"])
-    assert features["colours"]["red"] > 0.9
+    # Lighting correction must not wash out the dominant evidence colour.
+    assert features["colours"]["red"] > 0.5
+    assert features["colours"]["red"] == max(features["colours"].values())
 
 
 def test_forced_flush_writes_continuous_video_segment(app):

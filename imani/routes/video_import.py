@@ -1,7 +1,7 @@
 """Video URL import and 4K snapshot extraction (Bit 14)."""
 from __future__ import annotations
 
-import shutil
+import json
 from pathlib import Path
 
 from flask import (
@@ -130,7 +130,14 @@ def start():
 @auth.login_required
 def detail(import_id: int):
     item = _get_or_404(import_id)
-    snapshots = VideoImportSnapshotRepository.all(import_id)
+    snapshots = []
+    for row in VideoImportSnapshotRepository.all(import_id):
+        snapshot = dict(row)
+        try:
+            snapshot["quality"] = json.loads(snapshot.get("quality_json") or "{}")
+        except ValueError:
+            snapshot["quality"] = {}
+        snapshots.append(snapshot)
     return render_template(
         "video_import/detail.html",
         item=item,
@@ -229,13 +236,7 @@ def delete(import_id: int):
     if item["status"] in ("queued", "running"):
         flash("This import is still running. Wait for it to finish before deleting it.", "warning")
         return redirect(url_for("video_import.detail", import_id=import_id))
-    base = video_import.root() / str(item["id"])
-    VideoImportRepository.delete(import_id)
-    try:
-        if base.is_dir():
-            shutil.rmtree(base)
-    except OSError:
-        pass
+    video_import.delete_import(import_id)
     AuditRepository.record(
         "VIDEO_IMPORT_DELETE",
         "video_imports",
@@ -243,5 +244,5 @@ def delete(import_id: int):
         f"Deleted video import: {item['source_url'][:180]}",
         auth.current_user()["username"],
     )
-    flash("Video import and its snapshots were deleted.", "success")
+    flash("Video import, source footage and its library snapshots were deleted.", "success")
     return redirect(url_for("video_import.index"))

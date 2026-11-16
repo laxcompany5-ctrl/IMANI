@@ -22,7 +22,9 @@ model is a separate, GPU-heavy step.
 from __future__ import annotations
 
 import itertools
+import io
 import json
+import math
 import os
 import re
 import shutil
@@ -30,14 +32,20 @@ import subprocess
 import threading
 import time
 import zipfile
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 from flask import current_app, has_app_context
 
 from . import features
-from .models import VideoImportRepository, VideoImportSnapshotRepository
+from .models import (
+    AuditRepository,
+    CameraSnapshotRepository,
+    CameraVideoRepository,
+    VideoImportRepository,
+    VideoImportSnapshotRepository,
+)
 
 
 class VideoImportError(RuntimeError):
@@ -76,13 +84,35 @@ def root() -> Path:
     return path
 
 
+def instance_root() -> Path:
+    """The instance directory that also holds the Videos and Snapshots libraries."""
+    return Path(current_app.config["MEDIA_ROOT"]).parent
+
+
+def _stored(path: Path) -> str:
+    """Store a path relative to the instance root where possible."""
+    try:
+        return path.relative_to(instance_root()).as_posix()
+    except ValueError:
+        return path.relative_to(root()).as_posix()
+
+
 def resolve(rel_path: str) -> Path:
-    """Resolve a stored path, refusing anything outside the import root."""
-    base = root().resolve()
-    target = (base / rel_path).resolve()
-    if base != target and base not in target.parents:
-        raise ValueError("path escapes the video import root")
-    return target
+    """Resolve a stored path inside the instance or import storage roots."""
+    relative = Path(rel_path)
+    missing: Path | None = None
+    for base in (instance_root(), root()):
+        base = base.resolve()
+        target = (base / relative).resolve()
+        if base != target and base not in target.parents:
+            continue
+        if target.exists():
+            return target
+        if missing is None:
+            missing = target
+    if missing is not None:
+        return missing
+    raise ValueError("path escapes the video import root")
 
 
 def ffmpeg_exe() -> str:
@@ -482,6 +512,155 @@ def _has_person(path: Path) -> bool:
         return False
 
 
+# --- Quality and lighting ---------------------------------------------------
+
+QUALITY_MIN_BRIGHTNESS = 0.08
+QUALITY_MAX_BRIGHTNESS = 0.93
+QUALITY_MIN_CONTRAST = 0.05
+QUALITY_MIN_SHARPNESS = 0.025
+
+
+def analyze_quality(source: Path) -> dict:
+    """Measure exposure, contrast and edge detail before a frame is saved.
+
+    The numbers are deliberately conservative: a night-time CCTV frame can be
+    dim, but a frame that is almost black, blown out, flat or blurred is not
+    worth publishing to the Snapshots library.
+    """
+    from PIL import Image
+
+    with Image.open(source) as original:
+        return analyze_quality_image(original)
+
+
+def analyze_quality_bytes(jpeg: bytes) -> dict:
+    """Same measurements as :func:`analyze_quality`, for in-memory frames."""
+    from PIL import Image
+
+    if not jpeg:
+        return {"ok": False, "reasons": ["empty frame"]}
+    with Image.open(io.BytesIO(jpeg)) as original:
+        return analyze_quality_image(original)
+
+
+def analyze_quality_image(image) -> dict:
+    from PIL import Image, ImageFilter, ImageStat
+
+    gray = image.convert("L")
+    gray.thumbnail((512, 512), Image.Resampling.LANCZOS)
+    stats = ImageStat.Stat(gray)
+    brightness = stats.mean[0] / 255.0
+    contrast = stats.stddev[0] / 255.0
+    sharpness = (
+        ImageStat.Stat(gray.filter(ImageFilter.FIND_EDGES)).mean[0] / 255.0
+    )
+    histogram = gray.histogram()
+    total = sum(histogram) or 1
+    dark_ratio = sum(histogram[:13]) / total
+    bright_ratio = sum(histogram[243:]) / total
+
+    reasons: list[str] = []
+    if brightness < QUALITY_MIN_BRIGHTNESS:
+        reasons.append("too dark")
+    elif brightness > QUALITY_MAX_BRIGHTNESS:
+        reasons.append("overexposed")
+    if contrast < QUALITY_MIN_CONTRAST:
+        reasons.append("flat / low contrast")
+    if sharpness < QUALITY_MIN_SHARPNESS:
+        reasons.append("blurred / too little detail")
+    if dark_ratio > 0.94 and brightness < 0.2:
+        reasons.append("almost entirely black")
+    if bright_ratio > 0.9 and brightness > 0.85:
+        reasons.append("almost entirely white")
+
+    score = max(
+        0.0,
+        min(
+            1.0,
+            (1.0 - abs(brightness - 0.5) * 2.0) * 0.35
+            + min(contrast / 0.25, 1.0) * 0.35
+            + min(sharpness / 0.10, 1.0) * 0.30,
+        ),
+    )
+    return {
+        "brightness": round(brightness, 4),
+        "contrast": round(contrast, 4),
+        "sharpness": round(sharpness, 4),
+        "dark_ratio": round(dark_ratio, 4),
+        "bright_ratio": round(bright_ratio, 4),
+        "score": round(score, 4),
+        "ok": not reasons,
+        "reasons": reasons,
+    }
+
+
+def normalise_lighting(image):
+    """Lift shadows or recover highlights, then apply a gentle auto-contrast.
+
+    The untouched frame is still kept on disk; this only changes the 4K copy
+    written to the Snapshots library. Returns the image and a list of actions.
+    """
+    from PIL import Image, ImageOps, ImageStat
+
+    actions: list[str] = []
+    gray = image.convert("L")
+    mean = ImageStat.Stat(gray).mean[0] / 255.0
+    adjusted = image
+
+    if mean < 0.30:
+        gamma = max(0.60, min(1.0, math.log(0.48) / math.log(max(mean, 0.02))))
+        adjusted = image.point(
+            lambda value: int(round(255 * ((value / 255.0) ** gamma)))
+        )
+        actions.append(f"shadow lift (gamma {gamma:.2f})")
+    elif mean > 0.70:
+        gamma = max(1.0, min(1.80, math.log(0.55) / math.log(min(mean, 0.98))))
+        adjusted = image.point(
+            lambda value: int(round(255 * ((value / 255.0) ** gamma)))
+        )
+        actions.append(f"highlight recovery (gamma {gamma:.2f})")
+
+    # Apply contrast to the value channel only. Autocontrasting RGB bands
+    # independently neutralises colour casts and can turn a red scene grey,
+    # which destroys evidence colours used by AI search.
+    hsv = adjusted.convert("HSV")
+    hue, saturation, value = hsv.split()
+    value = ImageOps.autocontrast(value, cutoff=1)
+    adjusted = Image.merge("HSV", (hue, saturation, value)).convert("RGB")
+    actions.append("auto contrast")
+    return adjusted, actions
+
+
+def normalise_lighting_bytes(jpeg: bytes) -> tuple[bytes, list[str], float]:
+    """Return a lighting-corrected JPEG plus the actions applied.
+
+    Used for live device snapshots. The caller keeps the raw frame for the
+    live view and recording; only the saved snapshot is adjusted.
+    """
+    from PIL import Image, ImageOps, ImageStat
+
+    with Image.open(io.BytesIO(jpeg)) as original:
+        image = ImageOps.exif_transpose(original).convert("RGB")
+        adjusted, actions = normalise_lighting(image)
+        brightness = ImageStat.Stat(adjusted.convert("L")).mean[0] / 255.0
+        buffer = io.BytesIO()
+        adjusted.save(
+            buffer, "JPEG", quality=92, subsampling=0, progressive=True,
+        )
+    return buffer.getvalue(), actions, round(brightness, 4)
+
+
+def _quality_gate(candidates: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Split sampled frames into publishable and rejected ones."""
+    kept: list[dict] = []
+    rejected: list[dict] = []
+    for candidate in candidates:
+        metrics = analyze_quality(candidate["path"])
+        candidate = {**candidate, "quality": metrics}
+        (kept if metrics["ok"] else rejected).append(candidate)
+    return kept, rejected
+
+
 def _select_scene(
     candidates: list[dict], max_snapshots: int, min_gap: float
 ) -> list[dict]:
@@ -551,16 +730,27 @@ def select_snapshots(
 # --- 4K upscale -------------------------------------------------------------
 
 def upscale_to_4k(
-    source: Path, target: Path, thumb: Path, width: int, height: int
+    source: Path, target: Path, thumb: Path, width: int, height: int,
+    normalise: bool = False,
 ) -> dict:
-    """Write a padded 4K JPEG and a small preview; return dimensions/size."""
-    from PIL import Image, ImageOps
+    """Write a padded 4K JPEG and a small preview; return dimensions/size.
+
+    ``normalise=True`` lifts shadows / recovers highlights and applies a gentle
+    auto-contrast to the 4K copy. The source frame is never modified.
+    """
+    from PIL import Image, ImageOps, ImageStat
 
     target.parent.mkdir(parents=True, exist_ok=True)
     thumb.parent.mkdir(parents=True, exist_ok=True)
     with Image.open(source) as original:
         image = ImageOps.exif_transpose(original).convert("RGB")
         original_width, original_height = image.size
+        lighting: list[str] = []
+        if normalise:
+            image, lighting = normalise_lighting(image)
+        saved_brightness = (
+            ImageStat.Stat(image.convert("L")).mean[0] / 255.0
+        )
         big = ImageOps.pad(
             image, (int(width), int(height)),
             method=Image.Resampling.LANCZOS,
@@ -582,6 +772,8 @@ def upscale_to_4k(
         "width": int(width),
         "height": int(height),
         "size_bytes": target.stat().st_size,
+        "lighting": lighting,
+        "saved_brightness": round(saved_brightness, 4),
     }
 
 
@@ -611,7 +803,7 @@ def process_import(app, import_id: int) -> None:
                     int(app.config.get("VIDEO_IMPORT_MAX_BYTES", 0)),
                 )
                 video_path = downloaded["path"]
-                video_rel = video_path.relative_to(root()).as_posix()
+                video_rel = _stored(video_path)
                 _update(
                     import_id,
                     source_kind=downloaded.get("source_kind"),
@@ -642,19 +834,30 @@ def process_import(app, import_id: int) -> None:
                     int(app.config.get("VIDEO_IMPORT_MAX_CANDIDATES", 600)),
                     on_progress=progress,
                 )
+                # Auto-filter: drop almost-black, blown-out, flat or blurred
+                # frames before anything is written to the library.
+                kept, rejected = _quality_gate(candidates)
+                if not kept:
+                    # A genuinely dark scene should still produce evidence:
+                    # fall back to the best-exposed frames.
+                    kept = sorted(
+                        rejected, key=lambda item: item["quality"]["score"],
+                        reverse=True,
+                    )[: int(row["max_snapshots"] or 24)]
                 _update(
                     import_id,
                     candidate_count=len(candidates),
+                    rejected_count=len(rejected),
                     stage="Selecting snapshots",
                     progress=55,
                 )
                 selected = select_snapshots(
-                    candidates, row["mode"], int(row["max_snapshots"] or 24),
+                    kept, row["mode"], int(row["max_snapshots"] or 24),
                     min_gap=max(1.0, effective_interval * 1.5),
                 )
                 if not selected:
                     raise VideoImportError(
-                        "No usable snapshots were found in this video."
+                        "No usable snapshots passed the quality filter."
                     )
 
                 target_width = int(
@@ -671,15 +874,21 @@ def process_import(app, import_id: int) -> None:
                     thumb = base / "snapshots" / "thumbs" / f"{stem}_thumb.jpg"
                     shutil.copy2(candidate["path"], original)
                     info = upscale_to_4k(
-                        original, upscaled, thumb, target_width, target_height
+                        original, upscaled, thumb, target_width, target_height,
+                        normalise=True,
                     )
                     feature_record = features.extract_features(original)
+                    quality_record = {
+                        **candidate.get("quality", {}),
+                        "lighting": info.get("lighting", []),
+                        "saved_brightness": info.get("saved_brightness"),
+                    }
                     VideoImportSnapshotRepository.create({
                         "import_id": import_id,
                         "timestamp_sec": candidate["timestamp"],
-                        "original_path": original.relative_to(root()).as_posix(),
-                        "upscaled_path": upscaled.relative_to(root()).as_posix(),
-                        "thumb_path": thumb.relative_to(root()).as_posix(),
+                        "original_path": _stored(original),
+                        "upscaled_path": _stored(upscaled),
+                        "thumb_path": _stored(thumb),
                         "original_width": info["original_width"],
                         "original_height": info["original_height"],
                         "width": info["width"],
@@ -689,6 +898,7 @@ def process_import(app, import_id: int) -> None:
                             json.dumps(feature_record)
                             if feature_record else None
                         ),
+                        "quality_json": json.dumps(quality_record),
                     })
                     _update(
                         import_id,
@@ -699,13 +909,27 @@ def process_import(app, import_id: int) -> None:
                 _update(
                     import_id,
                     status="complete",
-                    stage="Complete",
-                    progress=100,
+                    stage="Publishing to libraries",
+                    progress=99,
                     snapshot_count=total,
                     output_width=target_width,
                     output_height=target_height,
                     completed_at=_now(),
                 )
+                try:
+                    publish_import(app, import_id)
+                except Exception as exc:  # noqa: BLE001 - keep extracted evidence
+                    app.logger.exception(
+                        "Video import %s could not be published", import_id
+                    )
+                    _update(
+                        import_id,
+                        stage="Complete — library publish failed",
+                        error=f"Snapshots were extracted but could not be "
+                              f"published to the Videos/Snapshots libraries: {exc}",
+                    )
+                else:
+                    _update(import_id, stage="Complete", progress=100)
                 app.logger.info(
                     "Video import %s complete: %s snapshots at %sx%s",
                     import_id, total, target_width, target_height,
@@ -719,6 +943,264 @@ def process_import(app, import_id: int) -> None:
                 app.logger.exception("Video import %s failed", import_id)
             finally:
                 shutil.rmtree(candidates_dir, ignore_errors=True)
+
+
+def _slug(value: str | None, fallback: str) -> str:
+    text = re.sub(r"[^A-Za-z0-9]+", "-", (value or "").strip()).strip("-")
+    return text[:60].strip("-").lower() or fallback
+
+
+def _move(src: Path, dest: Path) -> Path:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if dest.exists():
+        dest.unlink()
+    shutil.move(str(src), str(dest))
+    return dest
+
+
+def publish_import(app, import_id: int) -> dict:
+    """Move a finished import into the permanent Videos and Snapshots libraries.
+
+    The source video goes to ``instance/videos/<date>/<slug>/import_<id>/`` and
+    each snapshot goes to ``instance/snapshots/<date>/<slug>/import_<id>/``.
+    The import page keeps working because its stored paths are rewritten.
+    """
+    from PIL import Image
+
+    row = VideoImportRepository.get(import_id)
+    if row is None:
+        raise VideoImportError("Import not found.")
+    if row["status"] != "complete":
+        raise VideoImportError("Only completed imports can be published.")
+    if row["library_video_id"]:
+        return {"video_id": row["library_video_id"], "published": True}
+
+    snapshots = VideoImportSnapshotRepository.all(import_id)
+    library_root = instance_root()
+    date = (row["created_at"] or _now())[:10]
+    slug = _slug(row["title"], f"video-import-{import_id}")
+    title = (row["title"] or f"Video import #{import_id}")[:120]
+    video_dir = library_root / "videos" / date / slug / f"import_{import_id}"
+    snap_dir = library_root / "snapshots" / date / slug / f"import_{import_id}"
+    video_dir.mkdir(parents=True, exist_ok=True)
+    snap_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        created = datetime.strptime(
+            (row["created_at"] or "")[:19], "%Y-%m-%d %H:%M:%S"
+        )
+    except ValueError:
+        created = datetime.now(timezone.utc).replace(tzinfo=None)
+    start = created - timedelta(seconds=float(row["duration_sec"] or 0))
+
+    video_name = "video.mp4"
+    source_video = resolve(row["video_path"]) if row["video_path"] else None
+    if source_video and source_video.exists():
+        video_name = f"video{(source_video.suffix or '.mp4').lower()}"
+        _move(source_video, video_dir / video_name)
+
+    poster_written = False
+    if snapshots:
+        poster_source = None
+        for candidate in snapshots:
+            try:
+                poster_source = resolve(candidate["upscaled_path"])
+                if poster_source.exists():
+                    break
+            except ValueError:
+                poster_source = None
+        if poster_source and poster_source.exists():
+            try:
+                with Image.open(poster_source) as image:
+                    poster = image.convert("RGB")
+                    poster.thumbnail((1280, 720), Image.Resampling.LANCZOS)
+                    poster.save(video_dir / "poster.jpg", "JPEG", quality=88)
+                poster_written = True
+            except Exception:  # pragma: no cover - poster is best effort
+                pass
+
+    manifest = {
+        "kind": "import",
+        "camera": title,
+        "source_url": row["source_url"],
+        "import_id": import_id,
+        "video": video_name,
+        "poster": "poster.jpg" if poster_written else None,
+        "duration_sec": row["duration_sec"],
+        "width": row["width"],
+        "height": row["height"],
+        "fps": row["fps"],
+        "snapshots": len(snapshots),
+        "imported_at": row["created_at"],
+    }
+    (video_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
+
+    size_bytes = 0
+    for name in (video_name, "poster.jpg"):
+        path = video_dir / name
+        if path.exists():
+            size_bytes += path.stat().st_size
+
+    video_id = CameraVideoRepository.create({
+        "camera_id": None,
+        "camera_name": title,
+        "filename": video_name,
+        "path": _stored(video_dir),
+        "source_type": "import",
+        "duration_sec": row["duration_sec"],
+        "frame_count": int(round(
+            float(row["duration_sec"] or 0) * float(row["fps"] or 0)
+        )),
+        "size_bytes": size_bytes,
+        "started_at": row["created_at"],
+        "ended_at": row["created_at"],
+        "captured_at": row["created_at"],
+        "kind": "import",
+        "mime_type": row["mime_type"] or "video/mp4",
+        "description": f"Imported from {row['source_url'][:180]}",
+    })
+
+    published = 0
+    skipped = 0
+    for number, snapshot in enumerate(snapshots, start=1):
+        original = resolve(snapshot["original_path"])
+        upscaled = resolve(snapshot["upscaled_path"])
+        thumb = resolve(snapshot["thumb_path"]) if snapshot["thumb_path"] else None
+        timestamp = float(snapshot["timestamp_sec"] or 0)
+        stem = f"snapshot_{number:04d}_t{int(round(timestamp)):03d}s"
+
+        if not snapshot["quality_json"]:
+            # Older imports predate the quality gate. Check before publishing
+            # and normalise the 4K copy now.
+            metrics = analyze_quality(original)
+            if not metrics["ok"]:
+                skipped += 1
+                continue
+            thumb_target = thumb or (snap_dir / f"{stem}_thumb.jpg")
+            info = upscale_to_4k(
+                original, upscaled, thumb_target,
+                int(row["output_width"] or 3840), int(row["output_height"] or 2160),
+                normalise=True,
+            )
+            thumb = thumb_target
+            quality = {**metrics, "lighting": info["lighting"],
+                       "saved_brightness": info["saved_brightness"]}
+            VideoImportSnapshotRepository.update(
+                snapshot["id"], quality_json=json.dumps(quality),
+            )
+        else:
+            try:
+                quality = json.loads(snapshot["quality_json"])
+            except Exception:
+                quality = {}
+
+        dest_original = _move(original, snap_dir / f"{stem}.jpg")
+        dest_upscaled = _move(upscaled, snap_dir / f"{stem}_4k.jpg")
+        dest_thumb = None
+        if thumb and thumb.exists():
+            dest_thumb = _move(thumb, snap_dir / f"{stem}_thumb.jpg")
+
+        captured = start + timedelta(seconds=timestamp)
+        library_id = CameraSnapshotRepository.create({
+            "camera_id": None,
+            "camera_name": title,
+            "filename": dest_upscaled.name,
+            "path": _stored(dest_upscaled),
+            "source_type": "import",
+            "captured_at": captured.strftime("%Y-%m-%d %H:%M:%S"),
+            "features_json": snapshot["features_json"],
+            "description": (
+                f"Video import #{import_id} · t={timestamp:.1f}s · 4K UHD · "
+                f"auto-filtered, lighting normalised"
+            ),
+        })
+        VideoImportSnapshotRepository.update(
+            snapshot["id"],
+            original_path=_stored(dest_original),
+            upscaled_path=_stored(dest_upscaled),
+            thumb_path=_stored(dest_thumb) if dest_thumb else None,
+            library_snapshot_id=library_id,
+        )
+        published += 1
+
+    _update(
+        import_id,
+        library_video_id=video_id,
+        library_slug=slug,
+        published_at=_now(),
+        rejected_count=(row["rejected_count"] or 0) + skipped,
+    )
+    AuditRepository.record(
+        "VIDEO_IMPORT_PUBLISH",
+        "camera_videos",
+        video_id,
+        f"Published import #{import_id} to Videos and Snapshots "
+        f"({published} snapshots, 4K, lighting checked)",
+        row["created_by"] or "system",
+    )
+    return {"video_id": video_id, "snapshots": published, "published": True}
+
+
+def publish_completed_imports(app) -> list[dict]:
+    """Backfill imports that finished before the library publish step existed."""
+    results = []
+    with app.app_context():
+        for row in VideoImportRepository.unpublished_complete():
+            try:
+                results.append({
+                    "import_id": row["id"],
+                    **publish_import(app, row["id"]),
+                })
+            except Exception as exc:  # noqa: BLE001 - continue with the rest
+                results.append({
+                    "import_id": row["id"], "error": str(exc),
+                })
+    return results
+
+
+def delete_import(import_id: int) -> None:
+    """Delete an import, its library copies and every file on disk."""
+    row = VideoImportRepository.get(import_id)
+    if row is None:
+        return
+    library_root = instance_root()
+    files: list[Path] = []
+    directories: set[Path] = set()
+
+    for snapshot in VideoImportSnapshotRepository.all(import_id):
+        library_id = snapshot["library_snapshot_id"]
+        if library_id:
+            library = CameraSnapshotRepository.get(library_id)
+            if library:
+                files.append(library_root / library["path"])
+                CameraSnapshotRepository.delete(library_id)
+        for key in ("original_path", "upscaled_path", "thumb_path"):
+            if snapshot[key]:
+                try:
+                    files.append(resolve(snapshot[key]))
+                except ValueError:
+                    pass
+
+    video_id = row["library_video_id"]
+    if video_id:
+        library = CameraVideoRepository.get(video_id)
+        if library:
+            path = library_root / library["path"]
+            if path.is_dir():
+                directories.add(path)
+            elif path.exists():
+                files.append(path)
+            CameraVideoRepository.delete(video_id)
+
+    VideoImportRepository.delete(import_id)
+    for path in files:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
+    for path in directories:
+        shutil.rmtree(path, ignore_errors=True)
+    shutil.rmtree(root() / str(import_id), ignore_errors=True)
 
 
 def start_import(app, values: dict) -> int:

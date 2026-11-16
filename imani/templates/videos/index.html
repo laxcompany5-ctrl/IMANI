@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}Video & Audio Recordings{% endblock %}
+{% block title %}Videos, Recordings &amp; Imports{% endblock %}
 {% block content %}
 <div class="page-head">
   <div>
-    <h1>🎬 Auto-Saved Video &amp; Audio Recordings</h1>
-    <p class="muted">Footage is recorded continuously in {{ config.VIDEO_SEGMENT_SECONDS|int }}s segments while a camera monitors. Phone microphones add audio recordings. Everything is timestamped for review.</p>
+    <h1>🎬 Videos, Recordings &amp; Imports</h1>
+    <p class="muted">Footage is recorded continuously in {{ config.VIDEO_SEGMENT_SECONDS|int }}s segments while a camera monitors. Phone microphones add audio recordings. Imported video URLs also land here as original source footage. Everything is timestamped for review.</p>
   </div>
   <div class="head-actions">
     {% if current_user.role in ('analyst','admin') %}
@@ -31,6 +31,7 @@
     <option value="auto" {{ 'selected' if kind == 'auto' }}>Auto recordings</option>
     <option value="manual" {{ 'selected' if kind == 'manual' }}>Manual recordings</option>
     <option value="audio" {{ 'selected' if kind == 'audio' }}>Audio</option>
+    <option value="import" {{ 'selected' if kind == 'import' }}>Imported videos</option>
   </select>
   <button class="btn btn-primary" type="submit">Filter</button>
   <a class="btn btn-ghost" href="{{ url_for('videos.index') }}">Reset</a>

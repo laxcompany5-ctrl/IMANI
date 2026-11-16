@@ -4,14 +4,18 @@
 {% set is_audio = video.kind == 'audio' %}
 <div class="page-head">
   <div>
-    <h1>{% if is_audio %}🎙️ Audio Recording{% else %}🎬 Video Recording{% endif %} from {{ video.camera_name }}</h1>
+    <h1>{% if is_audio %}🎙️ Audio Recording{% elif is_import %}🎥 Imported Video{% else %}🎬 Video Recording{% endif %} from {{ video.camera_name }}</h1>
     <p class="muted">Captured {{ video.captured_at }} • {{ video.source_type }} • {{ video.kind or 'manual' }}{% if not is_audio %} • {{ video.frame_count }} frames • {{ '%.1f'|format(video.duration_sec or 0) }} seconds{% endif %}</p>
+    {% if is_import and video.description %}<p class="muted small">{{ video.description }}</p>{% endif %}
   </div>
   <div class="head-actions">
     <a class="btn btn-ghost" href="{{ url_for('videos.index') }}">All recordings</a>
     <a class="btn btn-ghost" href="{{ url_for('ai_search.index') }}">AI Search</a>
     {% if video.camera_id %}
     <a class="btn btn-ghost" href="{{ url_for('cameras.detail', camera_id=video.camera_id) }}">Camera</a>
+    {% endif %}
+    {% if is_import %}
+    <a class="btn btn-ghost" href="{{ url_for('snapshots.index') }}">Snapshots</a>
     {% endif %}
     {% if current_user.role in ('analyst','admin') %}
     <form method="post" action="{{ url_for('videos.delete', video_id=video.id) }}" class="inline-form" onsubmit="return confirm('Delete this recording?');">
@@ -27,6 +31,22 @@
   <h2>Audio Playback</h2>
   <p class="muted">Microphone audio recorded by the phone that was streaming this camera.</p>
   <audio controls preload="metadata" style="width:100%;" src="{{ url_for('videos.audio', video_id=video.id) }}"></audio>
+</div>
+{% elif is_import %}
+<div class="card">
+  <h2>Imported source video</h2>
+  <p class="muted small">This is the original downloaded footage. Snapshots extracted from it are stored separately in the Snapshots library.</p>
+  <video class="live-frame" controls preload="metadata" style="max-height:560px;background:#000;width:100%;">
+    <source src="{{ url_for('videos.source', video_id=video.id) }}" type="{{ video.mime_type or 'video/mp4' }}">
+    Your browser cannot preview this format. <a href="{{ url_for('videos.source', video_id=video.id) }}">Open the source video</a>.
+  </video>
+  {% if manifest %}
+  <p class="muted small" style="margin-top:.5rem;">
+    {{ manifest.get('width') }} × {{ manifest.get('height') }} source
+    {% if manifest.get('fps') %}· {{ manifest.get('fps') }} fps{% endif %}
+    · {{ manifest.get('snapshots', 0) }} snapshots extracted
+  </p>
+  {% endif %}
 </div>
 {% else %}
 <div class="card">
@@ -66,7 +86,11 @@
     <div><dt>Frames</dt><dd>{{ video.frame_count }}</dd></div>
     <div><dt>Duration</dt><dd>{{ '%.2f'|format(video.duration_sec or 0) }} seconds</dd></div>
     {% endif %}
+    {% if video.kind == 'import' %}
+    <div><dt>Library location</dt><dd><code>{{ video.path }}/{{ video.filename }}</code></dd></div>
+    {% else %}
     <div><dt>Path</dt><dd><code>{{ video.path }}</code></dd></div>
+    {% endif %}
   </dl>
 </div>
 

@@ -273,7 +273,9 @@ CREATE TABLE IF NOT EXISTS camera_snapshots (
     created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
     -- Bit 13: measured image features + a human annotation used by AI search.
     features_json TEXT,
-    description TEXT
+    description TEXT,
+    -- Bit 16: exposure/sharpness filter result for live device snapshots.
+    quality_json TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_camera_snapshots_camera ON camera_snapshots(camera_id);
@@ -348,7 +350,7 @@ CREATE TABLE IF NOT EXISTS video_imports (
     stage           TEXT,                       -- human-readable current step
     progress        INTEGER NOT NULL DEFAULT 0, -- 0..100
     error           TEXT,
-    video_path      TEXT,                       -- relative to VIDEO_IMPORT_ROOT
+    video_path      TEXT,                       -- relative to the instance root
     mime_type       TEXT,
     duration_sec    REAL,
     width           INTEGER,
@@ -358,10 +360,15 @@ CREATE TABLE IF NOT EXISTS video_imports (
     interval_sec    REAL    NOT NULL DEFAULT 2,
     max_snapshots   INTEGER NOT NULL DEFAULT 24,
     candidate_count INTEGER NOT NULL DEFAULT 0,
+    rejected_count  INTEGER NOT NULL DEFAULT 0, -- failed the brightness/sharpness filter
     snapshot_count  INTEGER NOT NULL DEFAULT 0,
     output_width    INTEGER NOT NULL DEFAULT 3840,
     output_height   INTEGER NOT NULL DEFAULT 2160,
     created_by      TEXT,
+    -- Bit 15: the published copies in the main Videos / Snapshots libraries.
+    library_video_id INTEGER,
+    library_slug    TEXT,
+    published_at    TEXT,
     created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at      TEXT    NOT NULL DEFAULT (datetime('now')),
     completed_at    TEXT
@@ -383,6 +390,9 @@ CREATE TABLE IF NOT EXISTS video_import_snapshots (
     height          INTEGER,
     size_bytes      INTEGER,
     features_json   TEXT,
+    quality_json    TEXT,                       -- brightness / sharpness / lighting
+    -- Bit 15: the matching row in the main Snapshots library.
+    library_snapshot_id INTEGER,
     created_at      TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 

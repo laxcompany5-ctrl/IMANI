@@ -19,7 +19,13 @@ from flask import (
 )
 
 from .. import auth, media, surveillance
-from ..models import AuditRepository, CameraRepository, CameraSnapshotRepository
+from ..models import (
+    AuditRepository,
+    CameraRepository,
+    CameraSnapshotRepository,
+    VideoImportRepository,
+    VideoImportSnapshotRepository,
+)
 
 bp = Blueprint("snapshots", __name__, url_prefix="/snapshots")
 
@@ -149,6 +155,7 @@ def describe(snapshot_id: int):
 @auth.role_required("analyst")
 def delete(snapshot_id: int):
     snap = _get_or_404(snapshot_id)
+    linked = VideoImportSnapshotRepository.find_by_library_snapshot(snapshot_id)
     try:
         base = Path(current_app.config["MEDIA_ROOT"]).parent
         path = (base / snap["path"])
@@ -157,5 +164,13 @@ def delete(snapshot_id: int):
     except Exception:
         pass
     CameraSnapshotRepository.delete(snapshot_id)
+    if linked:
+        # Imported snapshots live in the library and in the import gallery.
+        # Deleting here removes both so the two views never disagree.
+        VideoImportSnapshotRepository.delete(linked["id"])
+        VideoImportRepository.update(
+            linked["import_id"],
+            snapshot_count=VideoImportSnapshotRepository.count(linked["import_id"]),
+        )
     flash("Snapshot deleted.", "success")
     return redirect(url_for("snapshots.index"))

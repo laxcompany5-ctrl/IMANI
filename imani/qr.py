@@ -17,13 +17,14 @@ import socket
 from flask import current_app, request
 
 SALT = "imani-camera-qr"
+CONNECT_SALT = "imani-device-connect"
 
 
-def _serializer():
+def _serializer(salt: str = SALT):
     from itsdangerous import URLSafeTimedSerializer
 
     return URLSafeTimedSerializer(
-        current_app.config["SECRET_KEY"], salt=SALT,
+        current_app.config["SECRET_KEY"], salt=salt,
     )
 
 
@@ -48,6 +49,42 @@ def load_token(token: str) -> int | None:
         return int(payload.get("camera_id"))
     except (TypeError, ValueError):
         return None
+
+
+def make_connect_token() -> str:
+    """Create a short-lived token for the *self-registering* device QR.
+
+    Unlike :func:`make_token`, this token is not tied to a camera yet. The
+    phone that scans it registers a new phone camera on first open.
+    """
+    import secrets
+
+    return _serializer(CONNECT_SALT).dumps({
+        "connect": 1,
+        "nonce": secrets.token_hex(8),
+    })
+
+
+def load_connect_token(token: str) -> dict | None:
+    """Validate a device-connect token and return its payload."""
+    from itsdangerous import BadSignature, SignatureExpired
+
+    max_age = int(current_app.config.get("CONNECT_TOKEN_MAX_AGE", 3600))
+    try:
+        payload = _serializer(CONNECT_SALT).loads(token, max_age=max_age)
+    except SignatureExpired:
+        return None
+    except BadSignature:
+        return None
+    except Exception:
+        return None
+    if not payload.get("connect") or not payload.get("nonce"):
+        return None
+    return payload
+
+
+def connect_device_url(token: str) -> str:
+    return f"{public_base_url()}/cameras/connect/{token}"
 
 
 def lan_ip() -> str | None:
