@@ -4,7 +4,7 @@ This is the permanent-hosting route for the full app: **Flask + SQLite + local
 media + camera monitor threads** running on an Oracle Cloud **Always Free ARM
 VM**, behind nginx with a free Let's Encrypt certificate.
 
-Target repository: `https://github.com/Laxcompany5/IMANI`  
+Target repository: `https://github.com/laxcompany5-ctrl/IMANI`  
 Example public URL below: `https://imani-demo.duckdns.org`
 
 > Why a VPS and not a free PaaS? Render/Koyeb/Hugging Face free tiers have
@@ -86,7 +86,7 @@ sudo useradd --system --create-home --shell /usr/sbin/nologin imani
 sudo mkdir -p /opt/imani /mnt/imani-data/instance /mnt/imani-data/backups
 sudo chown -R imani:imani /opt/imani /mnt/imani-data
 
-sudo -u imani git clone https://github.com/Laxcompany5/IMANI.git /opt/imani
+sudo -u imani git clone https://github.com/laxcompany5-ctrl/IMANI.git /opt/imani
 cd /opt/imani
 
 # The repo intentionally ignores instance/. Replace the empty folder with a
