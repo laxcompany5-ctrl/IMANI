@@ -778,7 +778,7 @@ imani-web/
 ├── requirements.txt
 ├── pytest.ini
 ├── deploy/
-│   ├── DEPLOY.md           # step-by-step VPS deployment guide
+│   ├── DEPLOY.md           # Oracle Always Free VPS + HTTPS guide
 │   ├── imani.service       # systemd unit
 │   └── nginx-imani.conf    # nginx reverse-proxy config
 ├── imani/
@@ -865,10 +865,12 @@ Setting `IMANI_ENV=production` enables:
 - `PREFERRED_URL_SCHEME=https` and `ProxyFix` (correct URLs behind nginx)
 - a startup guard that **refuses to boot with the default secret key**
 
-Quick summary of the domain flow: register the domain (e.g. at HostAfrica) →
-point its `A` record at your server → deploy as above → add
-`https://<domain>/auth/google/callback` to the Google OAuth client. Full detail
-is in `deploy/DEPLOY.md`.
+For a permanent free URL, use the Oracle Cloud **Always Free** ARM VM guide in
+**[`deploy/DEPLOY.md`](deploy/DEPLOY.md)**: a persistent block volume holds the
+SQLite database and media, DuckDNS provides a free hostname, and Let's Encrypt
+provides HTTPS. The one-worker gunicorn setting is deliberate — camera monitor
+threads live in-process. If Google OAuth credentials are added later, register
+`https://<domain>/auth/google/callback` with Google.
 
 ---
 

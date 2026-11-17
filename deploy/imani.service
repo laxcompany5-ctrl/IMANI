@@ -1,17 +1,24 @@
 [Unit]
 Description=IMANI Security Intelligence Console (gunicorn)
-After=network.target
+After=network-online.target
+Wants=network-online.target
 
 [Service]
-# Adjust User/Group and paths to match your server.
+Type=simple
 User=imani
 Group=imani
 WorkingDirectory=/opt/imani
 EnvironmentFile=/opt/imani/.env
+Environment=PYTHONUNBUFFERED=1
 ExecStart=/opt/imani/.venv/bin/gunicorn --config gunicorn.conf.py wsgi:app
 ExecReload=/bin/kill -s HUP $MAINPID
 Restart=always
 RestartSec=3
+TimeoutStopSec=60
+KillMode=mixed
+StandardOutput=journal
+StandardError=journal
+UMask=0007
 
 # Basic hardening.
 NoNewPrivileges=true
