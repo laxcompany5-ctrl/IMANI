@@ -37,6 +37,7 @@
             {% if cam.running %}<span class="pill pill-active">● CAPTURING</span>
             {% elif cam.live == 'unavailable' %}<span class="pill pill-pending">UNAVAILABLE</span>
             {% elif cam.live == 'error' %}<span class="pill pill-danger">ERROR</span>
+            {% elif cam.source_type == 'phone' and cam.live == 'stopped' and 'paused' in (cam.error or '')|lower %}<span class="pill pill-pending">PAUSED</span>
             {% else %}<span class="pill">STOPPED</span>{% endif %}
           </td>
           <td class="muted small">{{ cam.source_url[:40] }}{% if cam.source_url|length > 40 %}...{% endif %}</td>
@@ -82,6 +83,10 @@
     if (cam.status === "unavailable") return '<span class="pill pill-pending">UNAVAILABLE</span>';
     if (cam.status === "error") return '<span class="pill pill-danger">ERROR</span>';
     if (cam.status === "connecting") return '<span class="pill pill-pending">CONNECTING</span>';
+    if (cam.source_type === "phone" && cam.status === "stopped" &&
+        /paused/i.test(cam.error || "")) {
+      return '<span class="pill pill-pending">PAUSED</span>';
+    }
     return '<span class="pill">STOPPED</span>';
   }
 

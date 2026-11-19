@@ -133,3 +133,15 @@ def test_phone_capture_page_has_retry_and_authenticated_flush(app, client):
     assert b"sendBeacon" in page.data
     assert b"Reconnecting" in page.data
     assert client.post(f"/cameras/{camera_id}/flush").status_code == 200
+
+
+def test_live_devices_shows_paused_phone(app, client):
+    camera_id = make_camera(app, "Paused Cam")
+    with app.app_context():
+        CameraRepository.set_state(
+            camera_id, "stopped", "Phone paused — waiting for frames."
+        )
+    login(client)
+    page = client.get("/cameras/live")
+    assert page.status_code == 200
+    assert b"PAUSED" in page.data
