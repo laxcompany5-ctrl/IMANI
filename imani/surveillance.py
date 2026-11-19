@@ -209,6 +209,11 @@ class Monitor:
     def latest_jpeg(self) -> bytes | None:
         return self._latest_jpeg
 
+    def flush(self) -> None:
+        """Force a snapshot and recording flush (used when a phone pauses)."""
+        self._finalize_pending()
+        self._flush(force=True)
+
     def status_payload(self) -> dict:
         return {
             "running": self.is_running,
@@ -286,7 +291,11 @@ class Monitor:
                 last_frame = _time.time()
             else:
                 if _time.time() - last_frame > idle_limit:
-                    self._set_state("stopped", "Phone stopped streaming")
+                    self._set_state(
+                        "stopped",
+                        "Phone paused — waiting for frames. Reopen the pairing "
+                        "page to resume.",
+                    )
                     return
                 _time.sleep(0.1)
 
@@ -435,6 +444,14 @@ class SurveillanceManager:
         for camera_id in list(self._monitors):
             self.stop(camera_id)
 
+    def flush(self, camera_id: int) -> bool:
+        """Flush one camera's buffered media without stopping its monitor."""
+        monitor = self._monitors.get(camera_id)
+        if monitor is None:
+            return False
+        monitor.flush()
+        return True
+
     def start_error(self, camera) -> str | None:
         """A human-readable reason this camera cannot be monitored, if any."""
         if _ENGINE_ERROR is not None:
@@ -513,7 +530,13 @@ def _monitor_init_patched(self, app, camera):
     # Frames since the current recording segment began (Bit 13).
     self._segment_frames: deque = deque(maxlen=1200)
     self._segment_started: float | None = None
+    self._segment_first_done = False
     self._last_auto_snapshot = 0.0
+    # Failing frames are kept briefly so a "best available" snapshot can be
+    # published when a dim/blurry phone never produces a passing frame.
+    self._snapshot_candidates: deque = deque(maxlen=12)
+    self._snapshot_failed_since: float | None = None
+    self._snapshot_written = False
 
 
 def _monitor_start_patched(self):
@@ -539,26 +562,11 @@ Monitor.start = _monitor_start_patched
 Monitor.push_frame = push_frame
 
 
-def _save_auto_snapshot(self) -> bool:
-    """Filter and persist the current frame, with measured features.
-
-    Live frames are checked for exposure, contrast and sharpness before they
-    reach the Snapshots library. Accepted frames are lighting-corrected before
-    saving; the raw frame still drives the live view and the recording
-    segments. Returns ``True`` when a snapshot was written.
-    """
+def _persist_snapshot(self, jpeg: bytes, quality: dict) -> bool:
+    """Save one measured frame to the Snapshots library."""
     from .models import CameraSnapshotRepository
     from . import video_import
 
-    jpeg = self._latest_jpeg
-    if not jpeg:
-        return False
-    try:
-        quality = video_import.analyze_quality_bytes(jpeg)
-    except Exception:  # pragma: no cover - measurement must never stop capture
-        quality = {"ok": True, "reasons": [], "brightness": None}
-    if not quality.get("ok"):
-        return False
     try:
         adjusted, actions, saved_brightness = (
             video_import.normalise_lighting_bytes(jpeg)
@@ -590,7 +598,48 @@ def _save_auto_snapshot(self) -> bool:
             "features_json": result.get("features_json"),
             "quality_json": _json.dumps(quality),
         })
+    self._snapshot_written = True
     return True
+
+
+def _save_auto_snapshot(self, allow_fallback: bool = False) -> bool:
+    """Filter and persist the current frame, with measured features.
+
+    Live frames are checked for exposure, contrast and sharpness before they
+    reach the Snapshots library. Accepted frames are lighting-corrected before
+    saving; the raw frame still drives the live view and the recording
+    segments. If every recent frame fails, ``allow_fallback`` publishes the
+    best-scoring one with the rejection reasons recorded in ``quality_json``.
+    """
+    from . import video_import
+
+    jpeg = self._latest_jpeg
+    if not jpeg:
+        return False
+    try:
+        quality = video_import.analyze_quality_bytes(jpeg)
+    except Exception:  # pragma: no cover - measurement must never stop capture
+        quality = {"ok": True, "reasons": [], "brightness": None, "score": 0.0}
+
+    if not quality.get("ok"):
+        self._snapshot_candidates.append(
+            (float(quality.get("score") or 0.0), jpeg, dict(quality))
+        )
+        if not allow_fallback or not self._snapshot_candidates:
+            return False
+        score, jpeg, quality = max(
+            self._snapshot_candidates, key=lambda item: item[0]
+        )
+        quality = {
+            **quality,
+            "ok": True,
+            "fallback": True,
+            "reasons": quality.get("reasons") or ["no passing frame"],
+        }
+
+    self._snapshot_candidates.clear()
+    self._snapshot_failed_since = None
+    return _persist_snapshot(self, jpeg, quality)
 
 
 def _write_segment(self) -> None:
@@ -600,6 +649,7 @@ def _write_segment(self) -> None:
     frames = list(self._segment_frames)
     self._segment_frames.clear()
     self._segment_started = None
+    self._segment_first_done = True
     if len(frames) < 2:
         return
     if not self.app.config.get("VIDEO_SEGMENT_ENABLED", True):
@@ -665,25 +715,49 @@ _orig_flush = Monitor._flush
 
 def _flush_with_snapshot(self, force=False):
     result = _orig_flush(self, force)
+    now = time.monotonic()
     try:
-        now = time.monotonic()
         interval = float(self.app.config.get("SNAPSHOT_INTERVAL_SECONDS", 30))
+        fallback_after = float(
+            self.app.config.get("SNAPSHOT_FALLBACK_SECONDS", 15)
+        )
         due = (now - self._last_auto_snapshot) >= interval
-        if (due or force) and self._latest_jpeg:
-            if force and self._last_auto_snapshot:
+        failed_long_enough = (
+            self._snapshot_failed_since is not None
+            and (now - self._snapshot_failed_since) >= fallback_after
+        )
+        if self._latest_jpeg and (force or due or failed_long_enough):
+            if force and self._snapshot_written:
                 pass  # already captured this run; don't duplicate on stop
-            elif _save_auto_snapshot(self):
-                self._last_auto_snapshot = now
             else:
-                # The frame was filtered out. Retry shortly instead of waiting
-                # a full interval, so the first usable frame is not missed.
-                self._last_auto_snapshot = now - interval + 5.0
+                saved = _save_auto_snapshot(
+                    self, allow_fallback=force or failed_long_enough
+                )
+                if saved:
+                    self._last_auto_snapshot = now
+                else:
+                    if self._snapshot_failed_since is None:
+                        self._snapshot_failed_since = now
+                    # Retry shortly instead of waiting a full interval, so the
+                    # first usable frame is not missed after lighting improves.
+                    retry_in = min(5.0, interval) if interval > 0 else 0.0
+                    self._last_auto_snapshot = now - interval + retry_in
     except Exception:  # pragma: no cover - best effort
         pass
     try:
         seconds = float(self.app.config.get("VIDEO_SEGMENT_SECONDS", 20))
+        first_seconds = float(
+            self.app.config.get("VIDEO_SEGMENT_FIRST_SECONDS", 5)
+        )
+        first_seconds = min(first_seconds, seconds)
         started = self._segment_started
-        if force or (started is not None and (time.time() - started) >= seconds):
+        elapsed = (time.time() - started) if started is not None else 0.0
+        first_due = (
+            not self._segment_first_done
+            and len(self._segment_frames) >= 2
+            and elapsed >= first_seconds
+        )
+        if force or first_due or (started is not None and elapsed >= seconds):
             _write_segment(self)
     except Exception:  # pragma: no cover - best effort
         pass

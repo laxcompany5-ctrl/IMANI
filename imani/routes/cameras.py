@@ -494,7 +494,15 @@ def phone_capture(camera_id: int):
         try:
             if not _push_phone_frame(camera, raw):
                 return jsonify({"ok": False, "error": "monitor unavailable"}), 503
-            return jsonify({"ok": True})
+            monitor = surveillance.get_manager().get(camera["id"])
+            payload = {"ok": True}
+            if monitor is not None:
+                payload.update({
+                    "status": monitor.status,
+                    "frames": monitor.frames_seen,
+                    "captures": monitor.captures,
+                })
+            return jsonify(payload)
         except Exception as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
     return render_template(
@@ -591,7 +599,15 @@ def scan_frame(token: str):
         return jsonify({"ok": False, "error": "no frame"}), 400
     if not _push_phone_frame(camera, raw):
         return jsonify({"ok": False, "error": "monitor unavailable"}), 503
-    return jsonify({"ok": True})
+    monitor = surveillance.get_manager().get(camera["id"])
+    payload = {"ok": True}
+    if monitor is not None:
+        payload.update({
+            "status": monitor.status,
+            "frames": monitor.frames_seen,
+            "captures": monitor.captures,
+        })
+    return jsonify(payload)
 
 
 @bp.route("/scan/<token>/audio", methods=("POST",))
@@ -603,6 +619,26 @@ def scan_audio(token: str):
     else:
         data, mime = request.get_data(), request.content_type
     return _store_audio(camera, data, mime)
+
+
+@bp.route("/scan/<token>/flush", methods=("POST",))
+def scan_flush(token: str):
+    """Flush a phone's buffered media when its page is hidden or closed."""
+    camera = _scan_camera(token)
+    manager = surveillance.get_manager()
+    manager.flush(camera["id"])
+    monitor = manager.get(camera["id"])
+    status = monitor.status_payload() if monitor else {}
+    return jsonify({"ok": True, "status": status.get("status")})
+
+
+@bp.route("/<int:camera_id>/flush", methods=("POST",))
+@auth.login_required
+def flush(camera_id: int):
+    """Authenticated flush for the signed-in phone capture page."""
+    _get_or_404(camera_id)
+    surveillance.get_manager().flush(camera_id)
+    return jsonify({"ok": True})
 
 
 # --- Device connection protocol (self-registering phone) ------------------

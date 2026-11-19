@@ -134,6 +134,15 @@ GUNICORN_THREADS=8
 GUNICORN_TIMEOUT=300
 ```
 
+Optional phone-capture tuning (defaults shown):
+
+```ini
+IMANI_PHONE_IDLE=30
+IMANI_VIDEO_SEGMENT=20
+IMANI_VIDEO_SEGMENT_FIRST=5
+IMANI_SNAPSHOT_FALLBACK=15
+```
+
 Important:
 
 - `IMANI_ENV=production` enables secure cookies, `ProxyFix` and refuses to boot

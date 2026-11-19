@@ -14,99 +14,249 @@
 <div class="card">
   <div style="text-align:center;">
     <video id="vid" autoplay playsinline muted style="max-width:100%;width:640px;border-radius:12px;background:#000;"></video>
-    <canvas id="canvas" style="display:none;"></canvas>
     <div style="margin-top:1rem;">
       <button class="btn btn-primary" id="start">Start Camera</button>
       <button class="btn btn-ghost" id="stop" disabled>Stop</button>
       <span id="status" class="muted">Not started</span>
     </div>
+    <div class="muted small" id="detail" style="margin-top:6px;"></div>
     <label style="display:block;margin-top:0.75rem;">
       <input type="checkbox" id="withAudio" checked> Record microphone audio
     </label>
-    <p class="muted small" style="margin-top:0.5rem;">Frames are sent at ~2 FPS and audio in 10-second slices. Use HTTPS, localhost or the LAN address.</p>
+    <p class="muted small" style="margin-top:0.5rem;">
+      Frames are sent at ~2 FPS with automatic retries. The first video segment is saved after
+      about 5 seconds; if no frame passes the quality gate, the best one is saved after
+      15 seconds. Keep this page open — a screen wake lock is used where supported.
+    </p>
     <p class="muted small" style="margin-top:0.5rem;">Pairing link: <code>{{ scan_url }}</code></p>
   </div>
 </div>
 <script>
-const video = document.getElementById('vid');
-const canvas = document.getElementById('canvas');
-const start = document.getElementById('start');
-const stopBtn = document.getElementById('stop');
-const status = document.getElementById('status');
-const withAudio = document.getElementById('withAudio');
-let stream = null, timer = null, recorder = null, sending = false;
-const url = "{{ url_for('cameras.phone_capture', camera_id=camera.id) }}";
-const audioUrl = "{{ url_for('cameras.phone_audio', camera_id=camera.id) }}";
-const csrf = "{{ csrf_token() }}";
+(function () {
+  "use strict";
+  const video = document.getElementById('vid');
+  const startBtn = document.getElementById('start');
+  const stopBtn = document.getElementById('stop');
+  const statusEl = document.getElementById('status');
+  const detailEl = document.getElementById('detail');
+  const withAudio = document.getElementById('withAudio');
+  const url = {{ url_for('cameras.phone_capture', camera_id=camera.id)|tojson }};
+  const audioUrl = {{ url_for('cameras.phone_audio', camera_id=camera.id)|tojson }};
+  const flushUrl = {{ url_for('cameras.flush', camera_id=camera.id)|tojson }};
+  const csrf = {{ csrf_token()|tojson }};
+  const canvas = document.createElement('canvas');
+  let stream = null, timer = null, recorder = null, wakeLock = null;
+  let sending = false, retryTimer = null, retryDelay = 1000;
+  let queue = [], intentionalStop = false;
+  const MAX_QUEUE = 6;
 
-function setStatus(text) { status.textContent = text; }
+  function setStatus(text) { statusEl.textContent = text; }
+  function setDetail(text) { detailEl.textContent = text || ''; }
 
-function pickMime() {
-  const options = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg", "audio/mp4"];
-  if (!window.MediaRecorder) return null;
-  for (const mime of options) {
-    if (MediaRecorder.isTypeSupported(mime)) return mime;
+  function requestWakeLock() {
+    if (!('wakeLock' in navigator) || wakeLock) return;
+    navigator.wakeLock.request('screen').then(function (lock) {
+      wakeLock = lock;
+      lock.addEventListener('release', function () { wakeLock = null; });
+      setDetail('Screen wake lock active');
+    }).catch(function () { setDetail('Wake lock unavailable — keep the screen on'); });
   }
-  return "";
-}
 
-function startAudio(mediaStream) {
-  const tracks = mediaStream.getAudioTracks();
-  if (!tracks.length || !window.MediaRecorder) return;
-  const mime = pickMime();
-  if (mime === null) return;
-  recorder = mime
-    ? new MediaRecorder(new MediaStream(tracks), { mimeType: mime })
-    : new MediaRecorder(new MediaStream(tracks));
-  recorder.ondataavailable = (event) => {
-    if (!event.data || !event.data.size) return;
-    const form = new FormData();
-    form.append('audio', event.data, 'audio.webm');
-    fetch(audioUrl, {
+  function flushNow() {
+    if (!navigator.sendBeacon) return;
+    try {
+      const form = new FormData();
+      form.append('_csrf_token', csrf);
+      navigator.sendBeacon(flushUrl, form);
+    } catch (e) {}
+  }
+
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible') {
+      requestWakeLock();
+      if (stream) capture();
+    } else {
+      flushNow();
+      setDetail('Page hidden — buffered video flushed; reopen to resume');
+    }
+  });
+  window.addEventListener('pagehide', function () {
+    flushNow();
+    stopAll(true);
+  });
+
+  function describeError(err) {
+    switch (err && err.name) {
+      case 'NotAllowedError':
+      case 'PermissionDeniedError':
+        return 'Camera permission was blocked. Allow it in browser settings, then tap Start Camera.';
+      case 'NotFoundError':
+      case 'DevicesNotFoundError':
+        return 'No camera was found on this phone.';
+      case 'NotReadableError':
+      case 'TrackStartError':
+        return 'The camera is busy in another app. Close it and tap Start Camera.';
+      case 'OverconstrainedError':
+        return 'This camera cannot meet the requested settings. Try again.';
+      default:
+        return (err && err.message) ? err.message : 'unknown camera error';
+    }
+  }
+
+  function pickMime() {
+    const options = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg', 'audio/mp4'];
+    if (!window.MediaRecorder) return null;
+    for (const mime of options) {
+      if (MediaRecorder.isTypeSupported(mime)) return mime;
+    }
+    return '';
+  }
+
+  function startAudio(mediaStream) {
+    const tracks = mediaStream.getAudioTracks();
+    if (!tracks.length || !window.MediaRecorder) return;
+    const mime = pickMime();
+    if (mime === null) return;
+    recorder = mime
+      ? new MediaRecorder(new MediaStream(tracks), { mimeType: mime })
+      : new MediaRecorder(new MediaStream(tracks));
+    recorder.ondataavailable = (event) => {
+      if (!event.data || !event.data.size) return;
+      const form = new FormData();
+      form.append('audio', event.data, 'audio.webm');
+      fetch(audioUrl, {
+        method: 'POST',
+        headers: { 'X-CSRF-Token': csrf },
+        body: form
+      }).catch(() => setDetail('Audio upload will retry with the next slice'));
+    };
+    recorder.start(10000);
+  }
+
+  function pump() {
+    if (sending || !queue.length || retryTimer) return;
+    sending = true;
+    const body = queue[0];
+    fetch(url, {
       method: 'POST',
-      headers: { 'X-CSRF-Token': csrf },
-      body: form
-    }).catch(() => {});
-  };
-  recorder.start(10000);
-}
-
-start.onclick = async () => {
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment' },
-      audio: withAudio.checked
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+      body: body
+    }).then(r => {
+      if (!r.ok) throw new Error('server ' + r.status);
+      return r.json();
+    }).then(j => {
+      queue.shift();
+      retryDelay = 1000;
+      if (j && j.ok) {
+        setStatus('Streaming...');
+        setDetail('server: ' + (j.status || 'live') +
+                  (j.frames !== undefined ? ' · frames ' + j.frames : ''));
+      } else {
+        setStatus('Error: ' + ((j && j.error) || 'unknown'));
+      }
+    }).catch(err => {
+      setStatus('Reconnecting...');
+      setDetail(err.message + (queue.length ? ' · ' + queue.length + ' frames queued' : ''));
+      retryTimer = setTimeout(function () {
+        retryTimer = null;
+        pump();
+      }, retryDelay);
+      retryDelay = Math.min(retryDelay * 2, 8000);
+    }).finally(function () {
+      sending = false;
+      if (!retryTimer && queue.length) pump();
     });
-    video.srcObject = stream;
-    start.disabled = true; stopBtn.disabled = false;
-    setStatus('Streaming...');
+  }
+
+  function capture() {
+    if (!stream || !video.videoWidth) return;
+    canvas.width = Math.min(960, video.videoWidth);
+    canvas.height = Math.round(canvas.width * video.videoHeight / video.videoWidth);
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+    const data = canvas.toDataURL('image/jpeg', 0.65);
+    if (queue.length >= MAX_QUEUE) queue.shift();
+    queue.push(JSON.stringify({ frame: data }));
+    pump();
+  }
+
+  function trackLost() {
+    if (intentionalStop || !stream) return;
+    if (timer) { clearInterval(timer); timer = null; }
+    if (recorder && recorder.state !== 'inactive') { try { recorder.stop(); } catch (e) {} }
+    recorder = null;
+    if (wakeLock) { try { wakeLock.release(); } catch (e) {} wakeLock = null; }
+    stream = null;
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+    setStatus('Camera stopped');
+    setDetail('The browser released the camera. Buffered video was saved.');
+    flushNow();
+  }
+
+  function beginStream(mediaStream, audioActive) {
+    stream = mediaStream;
+    video.srcObject = mediaStream;
+    mediaStream.getVideoTracks().forEach(function (track) {
+      track.addEventListener('ended', trackLost);
+    });
+    startBtn.disabled = true;
+    stopBtn.disabled = false;
+    intentionalStop = false;
+    retryDelay = 1000;
+    setStatus(audioActive ? 'Streaming...' : 'Streaming (no audio)...');
+    setDetail('Starting capture...');
+    requestWakeLock();
+    capture();
+    if (timer) clearInterval(timer);
     timer = setInterval(capture, 500);
-    if (withAudio.checked) startAudio(stream);
-  } catch (e) { setStatus('Error: ' + e.message); }
-};
-stopBtn.onclick = () => {
-  if (timer) { clearInterval(timer); timer = null; }
-  if (recorder && recorder.state !== 'inactive') { try { recorder.stop(); } catch (e) {} }
-  recorder = null;
-  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
-  start.disabled = false; stopBtn.disabled = true;
-  setStatus('Stopped');
-};
-function capture() {
-  if (sending || !video.videoWidth) return;
-  sending = true;
-  const ctx = canvas.getContext('2d');
-  canvas.width = Math.min(960, video.videoWidth);
-  canvas.height = Math.round(canvas.width * video.videoHeight / video.videoWidth);
-  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-  const data = canvas.toDataURL('image/jpeg', 0.65);
-  fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
-    body: JSON.stringify({ frame: data })
-  }).then(r => r.json()).then(j => {
-    setStatus(j.ok ? 'Streaming...' : ('Error: ' + (j.error || 'unknown')));
-  }).catch(() => {}).finally(() => { sending = false; });
-}
+    if (audioActive) startAudio(mediaStream);
+  }
+
+  startBtn.onclick = function () {
+    if (stream) return;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setStatus('Camera needs HTTPS');
+      setDetail('Use https:// or localhost; phones block camera access on plain HTTP.');
+      return;
+    }
+    const wantsAudio = withAudio.checked;
+    navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' } },
+      audio: wantsAudio
+    }).then(function (mediaStream) {
+      beginStream(mediaStream, wantsAudio && mediaStream.getAudioTracks().length > 0);
+    }).catch(function (err) {
+      if (!wantsAudio) { setStatus('Error'); setDetail(describeError(err)); return; }
+      navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' } },
+        audio: false
+      }).then(function (mediaStream) {
+        beginStream(mediaStream, false);
+        setDetail('Microphone unavailable — video only. ' + describeError(err));
+      }).catch(function (err2) {
+        setStatus('Tap Start Camera to allow access');
+        setDetail(describeError(err2));
+      });
+    });
+  };
+
+  function stopAll(auto) {
+    intentionalStop = true;
+    if (timer) { clearInterval(timer); timer = null; }
+    if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+    if (recorder && recorder.state !== 'inactive') { try { recorder.stop(); } catch (e) {} }
+    recorder = null;
+    if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
+    if (wakeLock) { try { wakeLock.release(); } catch (e) {} wakeLock = null; }
+    queue.length = 0;
+    flushNow();
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+    setStatus(auto ? 'Capture stopped — page closed' : 'Stopped');
+    setDetail('Saved segments are in the Videos tab');
+  }
+
+  stopBtn.onclick = function () { stopAll(false); };
+})();
 </script>
 {% endblock %}

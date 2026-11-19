@@ -62,9 +62,11 @@ A security-analyst web app built in small, working increments ("bits").
 >
 > **Bit 13 — Pairing, continuous recording & feature search:** every camera has
 > a signed QR code that pairs a phone in one scan (no sign-in needed on the
-> phone). While recording, IMANI saves a snapshot every 30s, writes continuous
-> 20s video segments, and stores phone microphone audio alongside the footage.
-> Each frame's colours and histogram are measured once and saved, so an analyst
+> phone). While recording, IMANI saves a snapshot every 30s (falling back to the
+> best available frame after 15s), flushes the first video segment after about
+> 5s and later segments every 20s, and stores phone microphone audio alongside
+> the footage. Uploads retry automatically and hiding the page flushes buffered
+> media. Each frame's colours and histogram are measured once and saved, so an analyst
 > can type a description ("man in a red jacket") or upload a photo and get a
 > ranked list of saved photos/recordings with a real match percentage. Prompts
 > also understand physical traits (`tall`, `athletic`, `limping`, `stooped`,
@@ -529,11 +531,15 @@ A phone can be paired to **any** camera, not only one whose source is `phone`:
 the first frame switches that camera's monitor into phone-frame mode, so a
 demo or RTSP entry still works when the phone is the only available source.
 The capture page tries to start the camera automatically after scanning (where
-the browser allows it) and requests a screen wake lock. The monitor starts as
-soon as the scan page opens; as frames arrive, IMANI saves an automatic
+the browser allows it), requests a screen wake lock, retries failed uploads,
+and flushes buffered video when the page is hidden or closed. The monitor starts
+as soon as the scan page opens; as frames arrive, IMANI saves an automatic
 snapshot immediately, opens a continuous video segment, and stores microphone
-slices every 10 seconds. Recording continues only while the capture page is
-open and in the foreground.
+slices every 10 seconds. The device shows as *paused* 30 seconds after the last
+frame and resumes automatically when the page sends new frames, so a brief tab
+switch does not disconnect it. Recording still needs the page open in a mobile
+browser — the OS stops camera access when the screen is locked or the app is
+backgrounded.
 
 > **Phones require HTTPS.** Mobile browsers only expose `getUserMedia` on a
 > secure origin (`https://`, or `http://localhost`). A QR link to
@@ -568,11 +574,17 @@ While a monitor thread is running:
   frames are rejected. Accepted frames get shadow lift / highlight recovery
   and value-channel auto-contrast (hue is preserved), and the filter result is
   stored in `quality_json`. Bad frames are retried after ~5 seconds, not a full
-  interval. Live snapshots stay at the camera's native resolution; 4K upscaling
-  is reserved for frames extracted from imported videos.
-- **Video** — continuous frame-sequence segments of
-  `IMANI_VIDEO_SEGMENT` seconds (default 20), under `instance/videos/…`,
-  indexed in `camera_videos` with `kind='auto'`. Manual saves use `kind='manual'`.
+  interval. If none pass for `IMANI_SNAPSHOT_FALLBACK` seconds (default 15), the
+  best-scoring recent frame is saved with `"fallback": true` in `quality_json`
+  so a difficult scene is not left out of the library. Live snapshots stay at
+  the camera's native resolution; 4K upscaling is reserved for frames extracted
+  from imported videos.
+- **Video** — continuous frame-sequence segments. The first segment is flushed
+  after about `IMANI_VIDEO_SEGMENT_FIRST` seconds (default 5) so a newly paired
+  phone appears in the Videos tab quickly; later segments run for
+  `IMANI_VIDEO_SEGMENT` seconds (default 20). Segments are under
+  `instance/videos/…`, indexed in `camera_videos` with `kind='auto'`. Manual
+  saves use `kind='manual'`.
 - **Audio** — a phone capture page can record the microphone with the browser
   `MediaRecorder` API; 10-second slices are stored under `instance/audio/…`
   and indexed with `kind='audio'`, then playable at `/videos/<id>/audio`.
@@ -615,6 +627,10 @@ description from their gallery pages, which is also used by text search.
 | `/cameras/scan/<token>` | no sign-in | Phone landing page |
 | `/cameras/scan/<token>/frame` | token | Receive a phone JPEG frame |
 | `/cameras/scan/<token>/audio` | token | Receive a phone audio slice |
+| `/cameras/scan/<token>/flush` | token | Flush buffered media when the page hides/closes |
+| `/cameras/<id>/capture` | signed-in | Signed-in phone capture page / frame POST |
+| `/cameras/<id>/audio` | signed-in | Signed-in phone audio POST |
+| `/cameras/<id>/flush` | signed-in | Flush buffered media from the signed-in capture page |
 | `/cameras/status.json` | signed-in | Live status used to refresh Connected Devices |
 | `/cameras/live` | signed-in | Connected devices, auto-refreshing |
 | `/snapshots/` | signed-in | Auto-captured photo gallery + descriptions |
@@ -671,9 +687,11 @@ published) it must satisfy:
 Rejected candidates are counted in `video_imports.rejected_count`. If *every*
 candidate fails (for example a genuinely dark night scene), the best-scoring
 frames are used instead of returning an empty import. The same gate runs on
-live device snapshots; a rejected live frame is retried after ~5 seconds.
+live device snapshots; a rejected live frame is retried after ~5 seconds, and
+after 15 seconds the best-scoring recent frame is published as a fallback.
 
-**Lighting correction.** Only the published 4K copy is adjusted. The untouched
+**Lighting correction.** For video imports, only the published 4K copy is
+adjusted. The untouched
 source-resolution frame is always kept. The pipeline:
 
 1. Lifts shadows when mean brightness < 0.30, or recovers highlights when
@@ -843,6 +861,7 @@ imani-web/
     ├── test_cameras.py     # camera registry, monitoring, live view, RBAC
     ├── test_device_connect.py # self-registering phone QR, monitor, snapshots
     ├── test_phone_pairing.py  # QR pairing takeover for any camera source
+    ├── test_phone_reliability.py # retries, flush, best-frame fallback
     ├── test_qr.py          # QR tokens, scan page, frame/audio endpoints
     ├── test_recording.py   # auto snapshots, quality filter, video segments
     ├── test_video_import.py# 4K extraction, quality, publish/backfill/delete

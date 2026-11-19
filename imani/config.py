@@ -53,6 +53,7 @@ class Config:
         "ingest.capture",
         "cameras.scan_frame",
         "cameras.scan_audio",
+        "cameras.scan_flush",
     }
 
     # Brute-force protection.
@@ -95,16 +96,27 @@ class Config:
     )
     # Continuous video is written in segments of this many seconds.
     VIDEO_SEGMENT_SECONDS = float(os.environ.get("IMANI_VIDEO_SEGMENT", "20"))
+    # The first segment is flushed sooner so a newly paired phone appears in
+    # the Videos tab quickly; later segments use VIDEO_SEGMENT_SECONDS.
+    VIDEO_SEGMENT_FIRST_SECONDS = float(
+        os.environ.get("IMANI_VIDEO_SEGMENT_FIRST", "5")
+    )
     VIDEO_SEGMENT_ENABLED = (
         os.environ.get("IMANI_VIDEO_SEGMENT_ENABLED", "1") == "1"
+    )
+    # If every recent live frame fails the quality gate, save the best one
+    # after this long instead of leaving the Snapshots tab empty.
+    SNAPSHOT_FALLBACK_SECONDS = float(
+        os.environ.get("IMANI_SNAPSHOT_FALLBACK", "15")
     )
     # Lifetime of a camera pairing QR link.
     QR_TOKEN_MAX_AGE = int(os.environ.get("IMANI_QR_MAX_AGE", "2592000"))
     # Window in which an operator-generated "connect a device" QR can be
     # scanned. Kept short because each scan registers a new phone camera.
     CONNECT_TOKEN_MAX_AGE = int(os.environ.get("IMANI_CONNECT_MAX_AGE", "3600"))
-    # How long a phone-source monitor waits for the next frame before it stops.
-    PHONE_IDLE_SECONDS = float(os.environ.get("IMANI_PHONE_IDLE", "10"))
+    # How long a phone-source monitor waits for the next frame before it pauses.
+    # Long enough to survive a brief tab switch; a new frame restarts it.
+    PHONE_IDLE_SECONDS = float(os.environ.get("IMANI_PHONE_IDLE", "30"))
 
     # --- HTTPS / public URLs (needed for phone cameras) ---------------
     # Mobile browsers block getUserMedia on plain http:// LAN addresses, so

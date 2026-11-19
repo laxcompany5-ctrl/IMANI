@@ -23,9 +23,10 @@
   <h2>What happens after scanning</h2>
   <ol>
     <li>A new <strong>Phone</strong> device is registered automatically and appears on the Connected Devices page.</li>
-    <li>The phone asks for camera (and microphone) permission and starts streaming at about 2 frames per second.</li>
-    <li>IMANI records continuous {{ config.VIDEO_SEGMENT_SECONDS|int }}s video segments and extracts snapshots every {{ config.SNAPSHOT_INTERVAL_SECONDS|int }}s.</li>
-    <li>Snapshots are checked for exposure, contrast and sharpness before saving. Accepted frames get shadow lift / highlight recovery and are stored in the Snapshots library.</li>
+    <li>The phone asks for camera (and microphone) permission and starts streaming at about 2 frames per second. Uploads retry automatically if the connection drops.</li>
+    <li>The first video segment is saved after about {{ config.VIDEO_SEGMENT_FIRST_SECONDS|int }}s; later segments run for {{ config.VIDEO_SEGMENT_SECONDS|int }}s. Closing or hiding the page flushes the buffered segment immediately.</li>
+    <li>Snapshots are checked for exposure, contrast and sharpness before saving. Accepted frames get shadow lift / highlight recovery and are stored in the Snapshots library. If none pass, the best available frame is saved after {{ config.SNAPSHOT_FALLBACK_SECONDS|int }}s.</li>
+    <li>The device stays live for {{ config.PHONE_IDLE_SECONDS|int }}s after the last frame, then shows as paused. Reopen the pairing link to resume.</li>
     <li>Recordings and snapshots are indexed for AI search, just like CCTV feeds.</li>
   </ol>
   {% if not config.HTTPS_ENABLED %}

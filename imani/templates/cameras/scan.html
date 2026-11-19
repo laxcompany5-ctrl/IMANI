@@ -21,7 +21,6 @@
     .dot.live { background: #34d399; box-shadow: 0 0 10px #34d399; }
     label { display: flex; gap: 8px; align-items: center; margin-top: 12px; font-size: .95rem; }
     code { word-break: break-all; color: #d8b4fe; }
-    .big { font-size: 2rem; text-align: center; }
   </style>
 </head>
 <body>
@@ -35,13 +34,14 @@
     <button id="start">Start camera</button>
     <button id="stop" class="secondary" disabled>Stop</button>
     <div class="status"><span class="dot" id="dot"></span><span id="status">Ready — tap Start camera</span></div>
+    <div class="muted" id="detail" style="font-size:.78rem;margin-top:4px;"></div>
     <p class="muted" style="font-size:.82rem;margin-bottom:0;">
-      The camera tries to start automatically after scanning. If the browser
-      asks, allow camera and microphone. Keep this page open and in the
-      foreground while streaming (a screen wake lock is requested where
-      supported): frames go to IMANI at ~2 FPS, an automatic snapshot is saved
-      immediately, video is written in segments, and audio is uploaded every
-      10 seconds.
+      The camera tries to start automatically after scanning. Allow camera and
+      microphone when asked. Keep this page open: a screen wake lock is
+      requested where supported, uploads retry automatically, and the first
+      video segment is saved after about 5 seconds. If every frame is too dark,
+      blurry or flat, IMANI saves the best available frame after 15 seconds.
+      Reopen this page if the device shows as paused.
     </p>
   </div>
 
@@ -83,10 +83,12 @@
   "use strict";
   var FRAME_URL = {{ url_for('cameras.scan_frame', token=token)|tojson }};
   var AUDIO_URL = {{ url_for('cameras.scan_audio', token=token)|tojson }};
+  var FLUSH_URL = {{ url_for('cameras.scan_flush', token=token)|tojson }};
   var video = document.getElementById("vid");
   var startBtn = document.getElementById("start");
   var stopBtn = document.getElementById("stop");
   var status = document.getElementById("status");
+  var detail = document.getElementById("detail");
   var dot = document.getElementById("dot");
   var withAudio = document.getElementById("withAudio");
   var insecure = document.getElementById("insecure");
@@ -94,26 +96,67 @@
   var stream = null;
   var frameTimer = null;
   var recorder = null;
-  var sending = false;
   var wakeLock = null;
+  var sending = false;
+  var intentionalStop = false;
+  var retryTimer = null;
+  var retryDelay = 1000;
+  var queue = [];
+  var MAX_QUEUE = 6;
   var cameraApiReady = !!(window.isSecureContext && navigator.mediaDevices &&
                            navigator.mediaDevices.getUserMedia);
+
+  function setStatus(text, live) {
+    status.textContent = text;
+    dot.classList.toggle("live", !!live);
+  }
+  function setDetail(text) { detail.textContent = text || ""; }
 
   function requestWakeLock() {
     if (!("wakeLock" in navigator) || wakeLock) return;
     navigator.wakeLock.request("screen").then(function (lock) {
       wakeLock = lock;
       lock.addEventListener("release", function () { wakeLock = null; });
-    }).catch(function () {});
+      setDetail("Screen wake lock active");
+    }).catch(function () { setDetail("Wake lock unavailable — keep the screen on"); });
+  }
+
+  function flushNow() {
+    if (!navigator.sendBeacon) return;
+    try { navigator.sendBeacon(FLUSH_URL, ""); } catch (e) {}
   }
 
   document.addEventListener("visibilitychange", function () {
-    if (document.visibilityState === "visible" && stream) requestWakeLock();
+    if (document.visibilityState === "visible") {
+      requestWakeLock();
+      if (stream) sendFrame();
+    } else {
+      // Give the server a clean segment boundary before the browser throttles
+      // the capture timer.
+      flushNow();
+      setDetail("Page hidden — buffered video flushed; reopen to resume");
+    }
+  });
+  window.addEventListener("pagehide", function () {
+    flushNow();
+    stopAll(true);
   });
 
-  function setStatus(text, live) {
-    status.textContent = text;
-    dot.classList.toggle("live", !!live);
+  function describeError(err) {
+    var name = err && err.name ? err.name : "";
+    if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+      return "Camera permission was blocked. Allow it in browser settings, then tap Start camera.";
+    }
+    if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+      return "No camera was found on this phone.";
+    }
+    if (name === "NotReadableError" || name === "TrackStartError") {
+      return "The camera is busy in another app. Close it and tap Start camera.";
+    }
+    if (name === "OverconstrainedError") {
+      return "This camera cannot meet the requested settings. Try again.";
+    }
+    return (err && err.message) ? err.message : "unknown camera error";
   }
 
   function pickMime() {
@@ -138,37 +181,90 @@
       if (!event.data || !event.data.size) return;
       var form = new FormData();
       form.append("audio", event.data, "audio.webm");
-      fetch(AUDIO_URL, { method: "POST", body: form }).catch(function () {});
+      fetch(AUDIO_URL, { method: "POST", body: form }).catch(function () {
+        setDetail("Audio upload will retry with the next slice");
+      });
     };
     recorder.start(10000);
   }
 
-  function sendFrame() {
-    if (sending || !video.videoWidth) return;
+  function pumpFrames() {
+    if (sending || !queue.length || retryTimer) return;
     sending = true;
+    var body = queue[0];
+    fetch(FRAME_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: body
+    }).then(function (response) {
+      if (!response.ok) throw new Error("server " + response.status);
+      return response.json();
+    }).then(function (json) {
+      queue.shift();
+      retryDelay = 1000;
+      if (json && json.ok) {
+        setStatus("Streaming to IMANI", true);
+        setDetail("server: " + (json.status || "live") +
+                  (json.frames !== undefined ? " · frames " + json.frames : "") +
+                  (queue.length ? " · retrying " + queue.length : ""));
+      } else {
+        setStatus("Server rejected a frame", false);
+        setDetail(json && json.error ? json.error : "unknown server error");
+      }
+    }).catch(function (err) {
+      setStatus("Reconnecting to IMANI…", false);
+      setDetail(err.message + (queue.length ? " · " + queue.length + " frames queued" : ""));
+      retryTimer = setTimeout(function () {
+        retryTimer = null;
+        pumpFrames();
+      }, retryDelay);
+      retryDelay = Math.min(retryDelay * 2, 8000);
+    }).finally(function () {
+      sending = false;
+      if (!retryTimer && queue.length) pumpFrames();
+    });
+  }
+
+  function sendFrame() {
+    if (!stream || !video.videoWidth) return;
     canvas.width = Math.min(960, video.videoWidth);
     canvas.height = Math.round(canvas.width * video.videoHeight / video.videoWidth);
     canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
     var data = canvas.toDataURL("image/jpeg", 0.65);
-    fetch(FRAME_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ frame: data })
-    }).then(function (response) {
-      if (!response.ok) throw new Error("server " + response.status);
-      setStatus("Streaming to IMANI", true);
-    }).catch(function (err) {
-      setStatus("Not reaching server: " + err.message, false);
-    }).finally(function () { sending = false; });
+    if (queue.length >= MAX_QUEUE) queue.shift();
+    queue.push(JSON.stringify({ frame: data }));
+    pumpFrames();
+  }
+
+  function trackLost() {
+    if (intentionalStop || !stream) return;
+    if (frameTimer) { clearInterval(frameTimer); frameTimer = null; }
+    if (recorder && recorder.state !== "inactive") { try { recorder.stop(); } catch (e) {} }
+    recorder = null;
+    if (wakeLock) { try { wakeLock.release(); } catch (e) {} wakeLock = null; }
+    stream = null;
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+    setStatus("Camera stopped — tap Start camera", false);
+    setDetail("The browser released the camera. IMANI flushed the buffered video.");
+    flushNow();
   }
 
   function beginStream(mediaStream, audioActive) {
     stream = mediaStream;
     video.srcObject = mediaStream;
+    mediaStream.getVideoTracks().forEach(function (track) {
+      track.addEventListener("ended", trackLost);
+    });
     startBtn.disabled = true;
     stopBtn.disabled = false;
+    intentionalStop = false;
+    retryDelay = 1000;
     setStatus(audioActive ? "Streaming to IMANI" : "Streaming to IMANI (no audio)", true);
+    setDetail("Starting capture…");
     requestWakeLock();
+    sendFrame();
+    if (frameTimer) clearInterval(frameTimer);
     frameTimer = setInterval(sendFrame, 500);
     if (audioActive) startAudio(mediaStream);
   }
@@ -184,11 +280,8 @@
     var videoConstraints = { facingMode: { ideal: "environment" } };
 
     function failed(err) {
-      if (auto) {
-        setStatus("Tap Start camera to allow access", false);
-      } else {
-        setStatus("Camera blocked: " + err.message, false);
-      }
+      setStatus("Tap Start camera to allow access", false);
+      setDetail(describeError(err));
     }
 
     if (auto) setStatus("Connecting camera…", false);
@@ -199,40 +292,42 @@
       var hasAudio = mediaStream.getAudioTracks().length > 0;
       beginStream(mediaStream, wantsAudio && hasAudio);
     }).catch(function (err) {
-      // A denied microphone must not prevent video capture. Retry video-only.
       if (!wantsAudio) { failed(err); return; }
       navigator.mediaDevices.getUserMedia({
         video: videoConstraints,
         audio: false
       }).then(function (mediaStream) {
         beginStream(mediaStream, false);
+        setDetail("Microphone unavailable — video only. " + describeError(err));
       }).catch(failed);
     });
   }
 
-  startBtn.addEventListener("click", function () { startCamera(false); });
-
-  function stopAll() {
+  function stopAll(auto) {
+    intentionalStop = true;
     if (frameTimer) { clearInterval(frameTimer); frameTimer = null; }
+    if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
     if (recorder && recorder.state !== "inactive") { try { recorder.stop(); } catch (e) {} }
     recorder = null;
     if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
     if (wakeLock) { try { wakeLock.release(); } catch (e) {} wakeLock = null; }
+    queue.length = 0;
+    flushNow();
     startBtn.disabled = false;
     stopBtn.disabled = true;
-    setStatus("Stopped", false);
+    setStatus(auto ? "Capture stopped — page closed" : "Stopped", false);
+    setDetail("Saved segments are in the Videos tab");
   }
-  stopBtn.addEventListener("click", stopAll);
-  window.addEventListener("pagehide", stopAll);
+
+  startBtn.addEventListener("click", function () { startCamera(false); });
+  stopBtn.addEventListener("click", function () { stopAll(false); });
 
   if (!cameraApiReady) {
     insecure.style.display = "block";
     startBtn.disabled = true;
     setStatus("Camera needs HTTPS on this phone", false);
+    setDetail("Use the secure link above or enable IMANI_HTTPS=1 on the server.");
   } else {
-    // Scanning the QR is the intent to connect. Browsers may still require a
-    // tap (notably iOS Safari); if automatic start is refused the page falls
-    // back to the Start button.
     setTimeout(function () {
       if (!stream) startCamera(true);
     }, 800);
