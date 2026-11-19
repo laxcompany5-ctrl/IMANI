@@ -16,8 +16,9 @@ or a machine already running your detection stack) on its own.
 ## What it does
 
 1. Reads frames from a device, file, or RTSP/HTTP stream (OpenCV).
-2. Detects people with OpenCV's built-in HOG detector and tracks them across
-   frames (a small IoU tracker).
+2. Detects people with OpenCV's built-in HOG detector where available (MOG2
+   foreground contours otherwise) and tracks them across frames (a small IoU
+   tracker).
 3. Estimates traits from each track:
    * **height** from the box size and the camera's height above the ground
      (a pinhole-model estimate — see below);
