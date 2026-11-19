@@ -7,7 +7,13 @@ from pathlib import Path
 from PIL import Image
 
 from imani import media
-from imani.models import CameraRepository, CameraSnapshotRepository, CameraVideoRepository
+from imani.models import (
+    CameraRepository,
+    CameraSnapshotRepository,
+    CameraVideoRepository,
+    IndividualRepository,
+    SightingRepository,
+)
 
 from .conftest import login
 
@@ -150,3 +156,36 @@ def test_audio_recording_is_searchable_and_playable(app, client):
         "search_type": "description", "query": "doorbell",
     })
     assert b"Audio Phone" in search.data
+
+
+def test_prompt_retrieves_best_matching_identity(app, client):
+    """A prompt with physical traits returns the best saved identity."""
+    login(client)
+    with app.app_context():
+        individual_id = IndividualRepository.create({
+            "full_name": "Daniel Ochieng",
+            "gender": "male",
+            "height_cm": 182,
+            "build": "athletic",
+            "posture": "stooped",
+            "gait": "limp",
+            "status": "active",
+        }, actor="admin")
+        SightingRepository.create({
+            "individual_id": individual_id,
+            "camera": "North Gate",
+            "height_cm": 182,
+            "build": "athletic",
+            "posture": "stooped",
+            "gait": "limp",
+            "notes": "seen near the north gate",
+        })
+
+    response = client.post("/ai-search/", data={
+        "search_type": "description",
+        "query": "tall athletic man about 182 cm, limping, stooped posture, red jacket",
+    })
+    assert response.status_code == 200
+    assert b"Daniel Ochieng" in response.data
+    assert b"Best match" in response.data
+    assert b"identity match" in response.data

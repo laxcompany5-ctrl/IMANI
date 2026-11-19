@@ -55,6 +55,29 @@ SYNONYMS = {
     "skin": "beige", "complexion": "beige",
 }
 
+# Physical-feature words in a prompt, mapped to the stored trait values used by
+# the matching engine. Multi-word phrases are handled in ``traits_in()``.
+TRAIT_SYNONYMS: dict[str, tuple[str, str | float]] = {
+    "slim": ("build", "slim"), "thin": ("build", "slim"),
+    "lean": ("build", "slim"), "slight": ("build", "slim"),
+    "average": ("build", "average"), "medium": ("build", "average"),
+    "athletic": ("build", "athletic"), "muscular": ("build", "athletic"),
+    "fit": ("build", "athletic"), "stocky": ("build", "heavy"),
+    "heavy": ("build", "heavy"), "broad": ("build", "heavy"),
+    "upright": ("posture", "upright"), "straight": ("posture", "upright"),
+    "stooped": ("posture", "stooped"), "hunched": ("posture", "hunched"),
+    "brisk": ("gait", "brisk"), "fast": ("gait", "brisk"),
+    "quick": ("gait", "brisk"), "slow": ("gait", "slow"),
+    "limp": ("gait", "limp"), "limping": ("gait", "limp"),
+    "shuffle": ("gait", "shuffle"), "shuffling": ("gait", "shuffle"),
+    "normal": ("gait", "normal"),
+}
+
+# Coarse height hints. A numeric "180 cm" in the prompt overrides these.
+HEIGHT_HINTS = {
+    "tall": 185.0, "short": 160.0, "average_height": 170.0,
+}
+
 _WORD = re.compile(r"[a-z]+")
 _STOP = {
     "the", "and", "with", "wearing", "wear", "wore", "has", "have", "had",
@@ -185,13 +208,75 @@ def colours_in(text: str) -> list[str]:
     return found
 
 
+def traits_in(text: str) -> dict[str, str | float]:
+    """Physical traits extractable from a written prompt.
+
+    Returns values compatible with :func:`imani.matching.score`, e.g.
+    ``{"height_cm": 180.0, "build": "athletic", "gait": "limp"}``.
+    """
+    value = (text or "").lower()
+    found: dict[str, str | float] = {}
+
+    # "180 cm", "about 175cm", "1.82 m" are the most precise height clues.
+    match = re.search(r"\b(\d{2,3})\s*(?:cm|centimet(?:re|er)s?)\b", value)
+    if not match:
+        match = re.search(r"\b1\.(\d{2})\s*(?:m|met(?:re|er)s?)\b", value)
+    if match:
+        height = float(match.group(1))
+        if match.group(0).strip().startswith("1."):
+            height = 100.0 + float(match.group(1))
+        if 100 <= height <= 230:
+            found["height_cm"] = height
+
+    for word in _WORD.findall(value):
+        if word in TRAIT_SYNONYMS:
+            key, trait_value = TRAIT_SYNONYMS[word]
+            found.setdefault(key, trait_value)
+
+    words = set(_WORD.findall(value))
+    if "height_cm" not in found:
+        if "very" in words and "tall" in words:
+            found["height_cm"] = 195.0
+        elif "very" in words and "short" in words:
+            found["height_cm"] = 150.0
+        elif "tall" in words:
+            found["height_cm"] = HEIGHT_HINTS["tall"]
+        elif "short" in words:
+            found["height_cm"] = HEIGHT_HINTS["short"]
+        elif "average" in words and "height" in words:
+            found["height_cm"] = HEIGHT_HINTS["average_height"]
+
+    # "average height" should not also be read as an average build.
+    if "height" in words and found.get("build") == "average":
+        found.pop("build", None)
+    return found
+
+
 def keyword_score(query: str, text: str) -> float:
-    """Share of meaningful query words that appear in ``text`` (0..1)."""
+    """Share of meaningful query words that appear in ``text`` (0..1).
+
+    Colour and physical-trait synonyms are normalised first, so "navy" matches
+    "blue" and "limping" matches a record whose gait is "limp".
+    """
     wanted = {w for w in _WORD.findall((query or "").lower()) if w not in _STOP}
     if not wanted:
         return 0.0
+
+    def expand(words: set[str]) -> set[str]:
+        # Trait synonym words are replaced by their canonical trait/value pair
+        # rather than kept as well — otherwise "limping" vs "limp" inflates the
+        # denominator and never reaches 1.0.
+        result = {
+            SYNONYMS.get(word, word) for word in words
+            if word not in TRAIT_SYNONYMS
+        }
+        for trait, trait_value in traits_in(" ".join(words)).items():
+            result.add(str(trait_value))
+            result.add("height" if trait == "height_cm" else trait)
+        return result
+
     present = set(_WORD.findall((text or "").lower()))
-    return len(wanted & present) / len(wanted)
+    return len(expand(wanted) & expand(present)) / len(expand(wanted))
 
 
 def colour_score(description: str, features: dict) -> float | None:
@@ -226,6 +311,7 @@ def description_match(description: str, features: dict,
     detail = {
         "colours": colours_in(description),
         "colour_presence": None if colour is None else round(colour, 3),
+        "traits": traits_in(description),
         "keywords": round(keywords, 3),
     }
     if colour is None:

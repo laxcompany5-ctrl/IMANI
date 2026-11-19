@@ -66,7 +66,10 @@ A security-analyst web app built in small, working increments ("bits").
 > 20s video segments, and stores phone microphone audio alongside the footage.
 > Each frame's colours and histogram are measured once and saved, so an analyst
 > can type a description ("man in a red jacket") or upload a photo and get a
-> ranked list of saved photos/recordings with a real match percentage.
+> ranked list of saved photos/recordings with a real match percentage. Prompts
+> also understand physical traits (`tall`, `athletic`, `limping`, `stooped`,
+> `180 cm`) and rank matching saved sightings/identities alongside media, with
+> the single best match highlighted.
 >
 > **Bit 14 — Video URL import:** paste a direct video URL or a platform page
 > (YouTube, Vimeo, …), download the source footage once, and extract snapshots
@@ -888,7 +891,7 @@ threads live in-process. If Google OAuth credentials are added later, register
 - **Bit 10 (done)** — CCTV connection & surveillance: camera registry, in-app monitor threads, live MJPEG view, per-camera status.
 - **Bit 11 (done)** — Capture archive: footage written to disk, replayed in the browser, filterable and pruned by retention.
 - **Bit 12 (done)** — Device connectivity: DVR/NVR URL templates, phone cameras, groups/zones, per-camera algorithm settings, connection tests, snapshot gallery.
-- **Bit 13 (done)** — QR pairing, continuous snapshot/video/audio recording, measured colour/histogram features, description and photo search with real match percentages.
+- **Bit 13 (done)** — QR pairing, continuous snapshot/video/audio recording, measured colour/histogram features, description/photo search with real match percentages and prompt-driven identity retrieval.
 - **Bit 14 (done)** — Video URL import: direct/platform download, scene/interval/people snapshot selection, separated original + 4K files, ZIP export, background progress and cleanup.
 - **Bit 15 (done)** — Library publication: source video published to Videos, filtered 4K snapshots published to Snapshots, hue-preserving lighting correction, quality/rejection reporting, cascade deletes and `publish-imports` backfill.
 - **Bit 16 (done)** — Device connection protocol: self-registering phone QR, immediate monitor start, auto-refreshing Connected Devices, quality-filtered and lighting-corrected live snapshots.

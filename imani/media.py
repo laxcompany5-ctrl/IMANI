@@ -331,7 +331,9 @@ def save_video_recording(camera_name: str | None, frames: list[tuple[float, byte
     date_dir.mkdir(parents=True, exist_ok=True)
     cam_dir = date_dir / _slug(camera_name, "camera")
     cam_dir.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    # Microseconds prevent collisions when an interval segment and a forced
+    # shutdown flush land in the same second.
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     vid_dir = cam_dir / f"rec_{ts}"
     vid_dir.mkdir(parents=True, exist_ok=True)
     

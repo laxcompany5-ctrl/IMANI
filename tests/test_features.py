@@ -66,3 +66,27 @@ def test_image_similarity_is_deterministic():
 
 def test_extract_features_rejects_garbage():
     assert features.extract_features(b"not an image") is None
+
+
+def test_traits_in_parses_physical_features():
+    parsed = features.traits_in(
+        "tall athletic man, about 182 cm, limping with a stooped posture"
+    )
+    assert parsed["height_cm"] == 182.0
+    assert parsed["build"] == "athletic"
+    assert parsed["gait"] == "limp"
+    assert parsed["posture"] == "stooped"
+
+
+def test_traits_in_uses_height_hints_without_overriding_build():
+    parsed = features.traits_in("short slim person")
+    assert parsed["height_cm"] == 160.0
+    assert parsed["build"] == "slim"
+    average = features.traits_in("person of average height")
+    assert average["height_cm"] == 170.0
+    assert "build" not in average
+
+
+def test_keyword_score_normalises_trait_synonyms():
+    assert features.keyword_score("limping man", "gait: limp") == 1.0
+    assert features.keyword_score("navy jacket", "blue jacket") == 1.0

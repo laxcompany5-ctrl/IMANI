@@ -30,7 +30,7 @@
       <div class="field">
         <label for="query">Describe the person or object</label>
         <textarea id="query" name="query" rows="3" placeholder="e.g. tall man wearing a red jacket and black trousers near the gate">{{ query }}</textarea>
-        <span class="hint">Colour words (red, blue, black, white, navy, maroon…) are compared with the measured colours of every frame. Other words are matched against your saved descriptions and camera names.</span>
+        <span class="hint">Colours (red, navy, maroon…) are compared with measured pixels. Physical traits (tall, athletic, limping, stooped, 180 cm…) are scored against saved sightings with the matching engine. Other words match descriptions and camera names.</span>
       </div>
     </div>
 
@@ -63,8 +63,36 @@ function toggleSearch() {
 <div class="card" style="margin-top:1.5rem;">
   <h2>{{ results|length }} match{{ 'es' if results|length != 1 else '' }} found</h2>
   <p class="muted">
-    Sorted by measured match. {% if search_type == 'image' %}Score compares colour/feature histograms with your upload.{% else %}Score compares the prompt's colours and keywords with each frame.{% endif %}
+    Sorted by measured match. {% if search_type == 'image' %}Score compares colour/feature histograms with your upload.{% else %}Colours are measured from pixels; physical traits are scored with the identity matcher; other words match saved descriptions.{% endif %}
   </p>
+
+  {% if best_match %}
+  <div class="card" style="border:1px solid var(--primary);margin:1rem 0;">
+    <strong>🏆 Best match</strong>
+    <div style="margin-top:0.35rem;">
+      {% if best_match.identity and best_match.identity.name %}
+      <a href="{{ best_match.identity.individual_url or best_match.view_url }}">
+        {{ best_match.identity.name }} ({{ best_match.identity.reference }})
+      </a>
+      <span class="pill pill-active">{{ best_match.score }}% identity match</span>
+      {% else %}
+      <a href="{{ best_match.view_url }}">{{ best_match.camera_name or 'Unknown' }}</a>
+      <span class="pill pill-active">{{ best_match.score }}% match</span>
+      {% endif %}
+    </div>
+    <div class="muted small" style="margin-top:0.35rem;">
+      {% if best_match.identity %}
+      Sighting {{ best_match.identity.sighting_reference }} ·
+      {{ best_match.identity.height_cm or '?' }} cm ·
+      {{ best_match.identity.build or '?' }} build ·
+      {{ best_match.identity.gait or '?' }} gait
+      {% if best_match.detail.get('band') %} · {{ best_match.detail.band }} confidence{% endif %}
+      {% else %}
+      {{ '📸 Photo' if best_match.type == 'snapshot' else ('🎙️ Audio' if best_match.is_audio else '🎬 Recording') }} · {{ best_match.timestamp }}
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
 
   <div class="archive-grid" style="margin-top:1rem;">
     {% for r in results %}
@@ -85,8 +113,21 @@ function toggleSearch() {
           <span class="pill {{ 'pill-active' if r.score >= 70 }}">{{ r.score }}% match</span>
         </div>
         <div class="muted small">
-          {% if r.type == 'snapshot' %}📸 Photo{% elif r.is_audio %}🎙️ Audio{% else %}🎬 Recording ({{ r.kind }}){% endif %}
+          {% if r.identity %}👤 Identity match{% elif r.type == 'snapshot' %}📸 Photo{% elif r.is_audio %}🎙️ Audio{% else %}🎬 Recording ({{ r.kind }}){% endif %}
         </div>
+        {% if r.identity %}
+        <div class="small" style="color: var(--primary);">
+          {% if r.identity.name %}
+          <a href="{{ r.identity.individual_url or r.view_url }}">{{ r.identity.name }} ({{ r.identity.reference }})</a>
+          {% else %}
+          Unknown person · {{ r.identity.sighting_reference }}
+          {% endif %}
+        </div>
+        <div class="muted small">
+          {{ r.identity.height_cm or '?' }} cm · {{ r.identity.build or '?' }} · {{ r.identity.posture or '?' }} · {{ r.identity.gait or '?' }}
+          {% if r.detail.get('traits_used') %} · matched {{ r.detail.traits_used|join(', ') }}{% endif %}
+        </div>
+        {% endif %}
         {% if r.description %}
         <div class="small" style="color: var(--primary);">{{ r.description }}</div>
         {% endif %}
@@ -95,7 +136,13 @@ function toggleSearch() {
           <span title="{{ swatch.ratio }}" style="display:inline-block;width:16px;height:16px;border-radius:4px;border:1px solid rgba(255,255,255,.35);background:{{ swatch.hex }};"></span>
           {% endfor %}
           {% if r.detail.get('colour_presence') is not none %}
-          <span class="muted">colour presence {{ (r.detail.get('colour_presence') * 100)|round(0)|int }}%</span>
+          <span class="muted">colour {{ (r.detail.get('colour_presence') * 100)|round(0)|int }}%</span>
+          {% endif %}
+          {% if r.detail.get('trait_score') is not none %}
+          <span class="muted">traits {{ r.detail.trait_score|round(0)|int }}%</span>
+          {% endif %}
+          {% if r.detail.get('keywords') is not none %}
+          <span class="muted">keywords {{ (r.detail.keywords * 100)|round(0)|int }}%</span>
           {% endif %}
         </div>
         <a class="btn btn-small" href="{{ r.view_url }}" style="margin-top:0.4rem;">Open</a>

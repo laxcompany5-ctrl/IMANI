@@ -226,36 +226,41 @@ class Monitor:
     def _run(self) -> None:
         try:
             self._set_state("connecting", None)
-            alg = getattr(self, 'algorithm', {}) or {}
-            config = AgentConfig(
-                camera=self.camera["name"],
-                source=self.camera["source_url"] or "demo",
-                min_interval_s=float(alg.get("min_interval_s", MIN_INTERVAL)),
-                confirm_hits=int(alg.get("confirm_hits", CONFIRM_HITS)),
-                iou_threshold=float(alg.get("iou_threshold", 0.3)),
-                every_n_frames=int(alg.get("every_n_frames", 5)),
-                face=bool(alg.get("face", False)),
-            )
-            try:
-                from agent.traits import Calibration
-                config = config.__class__(
-                    **{**config.__dict__, 'calibration': Calibration(
-                        camera_height_cm=float(alg.get("camera_height_cm", 250)),
-                        principal_y=float(alg.get("principal_y", 360)),
-                    )}
-                )
-            except Exception:
-                pass
-            client = _LocalIngest(self.app, on_result=self._on_capture)
             if getattr(self, '_use_phone_source', False):
-                frames = self._phone_frame_source()
+                # Phone frames already carry decoded JPEGs. They do not need
+                # OpenCV or the CV agent, so never let an agent import failure
+                # stop a phone from recording.
+                for _frame in self._phone_frame_source():
+                    pass
+                self._set_state("stopped", None)
             else:
+                alg = getattr(self, 'algorithm', {}) or {}
+                config = AgentConfig(
+                    camera=self.camera["name"],
+                    source=self.camera["source_url"] or "demo",
+                    min_interval_s=float(alg.get("min_interval_s", MIN_INTERVAL)),
+                    confirm_hits=int(alg.get("confirm_hits", CONFIRM_HITS)),
+                    iou_threshold=float(alg.get("iou_threshold", 0.3)),
+                    every_n_frames=int(alg.get("every_n_frames", 5)),
+                    face=bool(alg.get("face", False)),
+                )
+                try:
+                    from agent.traits import Calibration
+                    config = config.__class__(
+                        **{**config.__dict__, 'calibration': Calibration(
+                            camera_height_cm=float(alg.get("camera_height_cm", 250)),
+                            principal_y=float(alg.get("principal_y", 360)),
+                        )}
+                    )
+                except Exception:
+                    pass
+                client = _LocalIngest(self.app, on_result=self._on_capture)
                 frames = frame_source(
                     self.camera, self._stop,
                     on_frame=self._on_frame, on_idle=self._finalize_pending,
                 )
-            process(config, frames, client, emit=lambda _payload: None)
-            self._set_state("stopped", None)
+                process(config, frames, client, emit=lambda _payload: None)
+                self._set_state("stopped", None)
         except Exception as exc:
             self._set_state("error", str(exc))
         finally:
@@ -458,17 +463,16 @@ class SurveillanceManager:
 def init_app(app) -> None:
     """Attach a :class:`SurveillanceManager` to the application."""
     app.extensions["surveillance"] = SurveillanceManager()
-    # Monitors live in the process, so a development-server restart leaves
-    # stale `live` rows behind. Production workers are managed separately and
-    # must not clear each other's state.
-    if app.config.get("ENVIRONMENT") != "production":
-        try:
-            from .models import CameraRepository
+    # Monitors live in this process. A restart leaves stale `live` rows behind,
+    # so clear them at boot in every environment. Production is safe because
+    # gunicorn is configured with exactly ONE worker (see gunicorn.conf.py).
+    try:
+        from .models import CameraRepository
 
-            with app.app_context():
-                CameraRepository.clear_runtime_states()
-        except Exception:  # pragma: no cover - database may not exist yet
-            pass
+        with app.app_context():
+            CameraRepository.clear_runtime_states()
+    except Exception:  # pragma: no cover - database may not exist yet
+        pass
 
 
 def get_manager() -> SurveillanceManager:
@@ -605,6 +609,9 @@ def _write_segment(self) -> None:
             self.camera["name"], frames,
             camera_id=self.camera_id,
             source_type=_cam(self.camera, "source_type"),
+            started_at=datetime.fromtimestamp(frames[0][0]).strftime(
+                "%Y-%m-%d %H:%M:%S"
+            ),
         )
         if not result:
             return

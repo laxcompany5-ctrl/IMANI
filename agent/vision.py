@@ -7,10 +7,14 @@ rest of the agent (and its tests) run without it installed. Install it with::
 
 Two detectors are used:
 
-* a Histogram-of-Oriented-Gradients people detector (built into OpenCV — no
-  model files to download), for whole-body boxes;
-* Haar cascades for faces, used only to *optionally* produce a weak face
-  descriptor when ``--face`` is given.
+* a Histogram-of-Oriented-Gradients people detector where the installed OpenCV
+  build provides it (no model files to download);
+* a motion/foreground detector (MOG2 + contours) as a fallback. Some OpenCV 5
+  builds ship without HOG or Haar cascades — without this fallback a real
+  RTSP/file/HTTP camera would fail before any frame was recorded.
+
+Haar cascades are used only to *optionally* produce a weak face descriptor when
+``--face`` is given and the build provides them.
 
 Neither is a substitute for a real detection/embedding model. They exist so the
 pipeline is runnable end to end; swap them for your own in :class:`FrameAnalyzer`.
@@ -55,22 +59,81 @@ class FrameAnalyzer:
 
     def __init__(self, face: bool = False) -> None:
         self._cv2 = _require_cv2()
-        self._hog = self._cv2.HOGDescriptor()
-        self._hog.setSVMDetector(self._cv2.HOGDescriptor_getDefaultPeopleDetector())
+        cv2 = self._cv2
+
+        # HOG is preferred when this OpenCV build exposes it. OpenCV 5.0.0
+        # headless builds may not, so fall back to foreground detection rather
+        # than refusing to open a real camera.
+        self._hog = None
+        if (hasattr(cv2, "HOGDescriptor")
+                and hasattr(cv2, "HOGDescriptor_getDefaultPeopleDetector")):
+            try:
+                self._hog = cv2.HOGDescriptor()
+                self._hog.setSVMDetector(
+                    cv2.HOGDescriptor_getDefaultPeopleDetector()
+                )
+            except Exception:  # pragma: no cover - build-specific
+                self._hog = None
+        self._background = None
+        if self._hog is None:
+            self._background = cv2.createBackgroundSubtractorMOG2(
+                history=500, varThreshold=24, detectShadows=True,
+            )
+
         self._face_cascade = None
-        if face:
-            cascade_path = self._cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-            self._face_cascade = self._cv2.CascadeClassifier(cascade_path)
+        if face and hasattr(cv2, "CascadeClassifier"):
+            cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+            self._face_cascade = cv2.CascadeClassifier(cascade_path)
 
     def detect(self, frame) -> list[Detection]:
         """Return whole-body detections for one frame."""
-        rectangles, _weights = self._hog.detectMultiScale(
-            frame, winStride=(8, 8), padding=(16, 16), scale=1.05,
+        if self._hog is not None:
+            rectangles, _weights = self._hog.detectMultiScale(
+                frame, winStride=(8, 8), padding=(16, 16), scale=1.05,
+            )
+            return [
+                Detection(box=Box(float(x), float(y),
+                                  float(width), float(height)))
+                for x, y, width, height in rectangles
+            ]
+        return self._detect_motion(frame)
+
+    def _detect_motion(self, frame) -> list[Detection]:
+        """Fallback detector for OpenCV builds without HOG.
+
+        Uses background subtraction and upright contours. It is a real pixel
+        analysis — not a demo — but it is only a coarse person proxy: it can
+        confuse luggage or shadow movement. Keep HOG (or a proper model) where
+        available for better identity measurements.
+        """
+        cv2 = self._cv2
+        foreground = self._background.apply(frame)
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        foreground = cv2.morphologyEx(foreground, cv2.MORPH_OPEN, kernel)
+        foreground = cv2.morphologyEx(foreground, cv2.MORPH_CLOSE, kernel)
+        contours, _ = cv2.findContours(
+            foreground, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE,
         )
+
+        height, width = frame.shape[:2]
+        min_area = max(400, int(width * height * 0.002))
         detections: list[Detection] = []
-        for x, y, width, height in rectangles:
-            detections.append(Detection(box=Box(float(x), float(y),
-                                                float(width), float(height))))
+        for contour in contours:
+            if cv2.contourArea(contour) < min_area:
+                continue
+            x, y, box_w, box_h = cv2.boundingRect(contour)
+            if box_w < 20 or box_h < 40:
+                continue
+            if box_h / max(box_w, 1) < 1.1:  # person-like, not a wide object
+                continue
+            if box_w > width * 0.7 or box_h > height * 0.95:
+                continue  # whole-frame change is not a person
+            center_x = float(x + box_w / 2)
+            detections.append(Detection(
+                box=Box(float(x), float(y), float(box_w), float(box_h)),
+                head=(center_x, float(y + box_h * 0.12)),
+                feet=(center_x, float(y + box_h)),
+            ))
         return detections
 
     def face_embedding(self, frame, box: Box) -> list[float] | None:

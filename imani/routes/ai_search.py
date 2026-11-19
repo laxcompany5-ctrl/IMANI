@@ -30,7 +30,7 @@ from flask import (
     url_for,
 )
 
-from .. import auth, features, media
+from .. import auth, features, media, prompt_search
 from ..models import (
     AuditRepository,
     CameraRepository,
@@ -150,6 +150,7 @@ def _swatches(features_record: dict | None) -> list[dict]:
 
 
 def _search_description(query: str) -> list[dict]:
+    """Merge media matches and identity matches into one ranked answer."""
     results = []
     for item in _candidates():
         meta = " ".join(filter(None, [
@@ -169,7 +170,11 @@ def _search_description(query: str) -> list[dict]:
         item["detail"] = detail
         item["swatches"] = _swatches(item["features"])
         results.append(item)
+
+    results.extend(prompt_search.search_identities(query))
     results.sort(key=lambda row: row["score"], reverse=True)
+    if results:
+        results[0]["best"] = True
     return results
 
 
@@ -242,6 +247,7 @@ def index():
     return render_template(
         "ai_search/index.html",
         results=results,
+        best_match=results[0] if results else None,
         query=query,
         search_type=search_type,
         uploaded=uploaded,
